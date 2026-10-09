@@ -1,5 +1,5 @@
 /* ============================================================================
- * solar-engine.js — time 项目静态部署版天文引擎（window.TimeSolar）
+ * solar-engine.js — "无世界时钟" 静态部署版天文引擎（window.TimeSolar）
  *
  * 本文件是 app/solar.py（Meeus《Astronomical Algorithms》第 25 章太阳视位置）
  * 的逐函数忠实移植，供 GitHub Pages 纯静态部署（无 Python 服务端）使用。
@@ -7,34 +7,62 @@
  * 期望一致到 ~1e-9（时间字符串精确一致）。
  *
  * 函数对应关系（每个函数注释标明 solar.py 来源）：
- *   julianDay          ← julian_day
- *   solarPosition      ← solar_position
- *   solarElevation     ← solar_elevation
- *   hourAngleSunset    ← hour_angle_sunset
- *   terminatorBands    ← terminator_bands
- *   dayLengthHours     ← day_length_hours
- *   sunriseSunsetLocal ← sunrise_sunset（仅输出当地 HH:MM 展示）
+ *   julianDay            ← julian_day
+ *   solarPosition        ← solar_position
+ *   solarElevation       ← solar_elevation
+ *   terminatorCurves     ← terminator_curves   （按经度列求解，契约 §1.1）
+ *   hourAngleSunset      ← hour_angle_sunset
+ *   dayLengthHours       ← day_length_hours
+ *   sunriseSunsetLocal   ← sunrise_sunset      （返回当地时区 Date 对象）
  *
- * 与 Python 行为差异的处理（移植关键点）：
+ * 内部私有函数与 solar.py 私有函数一一对应：
+ *   _normLon ← _norm_lon（含 −180 → 180 端点映射）
+ *   _checkLat ← _check_lat        _checkTz ← _zone
+ *   _deg2rad/_rad2deg/_sinDeg/_cosDeg ← _deg2rad/_rad2deg/_sin_deg/_cos_deg
+ *   _wrap180 ← _wrap180           _inLatRange ← _in_lat_range
+ *   _clampLat ← _clamp_lat        _utHoursFromT ← _ut_hours_of_day
+ *   _columnLat0 ← _column_lat0    _columnLat6 ← _column_lat6
+ *   _cosHourAngle ← _cos_hour_angle
+ *   _polarKind ← _polar_kind      _polarKindAtPole ← _polar_kind_at_pole
+ *   _solarNoonUtcT ← _solar_noon_utc
+ *   _hourAngleRateT ← _hour_angle_rate
+ *   _timeAtHourAngleT ← _time_at_hour_angle
+ *   _dayEvents ← _day_events
+ *
+ * 与 Python 行为差异的处理（移植关键点 / 语义桥接点）：
  * 1. 时间表示：内部用 {days, us}（自 Unix 纪元起的整数天 + 当日整数微秒）
  *    表示 UTC 瞬间，等价于 Python datetime 的 (date.toordinal(), microsecond)
  *    字段；全程整数运算，避免浮点毫秒在 ±80 个儒略世纪范围内的精度损失。
  *    `t + timedelta(hours=h)` 的"量化到微秒、半数取偶"语义在 _addHours 中
  *    等价复现（CPython 3.12+ 对 timedelta 用精确有理运算后按半数取偶舍入）。
  * 2. Python 的 `%` 取膜恒非负（fmod 后按符号修正），JS 的 `%` 是截断余数，
- *    所有取模经 _pymod 复现（例如 subsolar_lon 的归一化必须落回 [-180,180)）。
+ *    所有取模经 _pymod 复现。受影响点：
+ *      - subsolar_lon 的归一化 _norm_lon（必须落回 [-180, 180]）；
+ *      - gmst 的 `% 360.0`、eq_of_time 的 `% 1440.0`；
+ *      - 晨昏线 wrap(a) = ((a+180) mod 360) − 180（每个候选只 wrap 一次，
+ *        严禁 ±180 归一切换——那会翻转 A·sinφ + B·cosφ = sin d 的符号，
+ *        得到 +6° 等值线而不是 −6° 晨昏蒙影线，旧版视觉相似但语义错误的坑）；
+ *      - _solar_noon_utc 的 `((target − ut_h + 12) mod 24) − 12`；
+ *      - _hour_angle_rate 的差分 `% 360.0`（直射点经度在 [-180,180] 表示，
+ *        UT 接近 00:00 时原始差分会跨经线反号，必须归一）；
+ *      - _time_at_hour_angle 的时角残差归一。
  * 3. Python round() 半数取偶，JS Math.round 半数取正 —— 用 _roundHalfEven
- *    复现；terminator_bands 的 n_intervals = int(round(180/step)) 依赖此
- *    语义（如 step=8 → 180/8=22.5 → 22 行区间，而非 23）。
+ *    复现；terminator_curves 的 n = int(round(360/lon_step)) 依赖此语义。
  * 4. JS 只有 Date 瞬间：naive/aware 的区分在接口上消失（入参统一为 UTC 瞬间
  *    的 Date，等价于 Python 的 naive-as-UTC / aware→UTC）。时区换算用
  *    Intl.DateTimeFormat('en-CA', {...}).formatToParts 取当地墙上时钟字段；
  *    时区偏移 = 当地墙上时间 − UTC 墙上时间（tzdb 偏移均为整秒，故精确）。
  *    当地正午的 UTC 瞬间用不动点迭代 T = wallNoon − offset(T) 求得
  *    （等价于 datetime(...,tzinfo=tz).astimezone(utc)）。
- * 5. 异常映射：Python ValueError → JS RangeError；Python TypeError → JS
- *    TypeError；Python OverflowError（事件时刻超出 datetime 可表示范围，
- *    即 0001-01-01 ~ 9999-12-31 之外）→ JS RangeError。
+ * 5. 异常映射：Python ValueError → JS RangeError；Python TypeError（入参不是
+ *    datetime/Date）→ JS TypeError；Python OverflowError（事件时刻超出
+ *    datetime 可表示范围，即 0001-01-01 ~ 9999-12-31 之外）→ JS RangeError。
+ *    curve0 无解对应 Python 的 AssertionError（数学上不可达）。
+ *
+ * 与旧版（v1，纬度行扫描夜弧）的区别：本版的 terminatorCurves 严格按
+ * app/solar.py 的按经度列算法（_column_lat0 / _column_lat6）求解，
+ * 输出 curve0（elev=0°）/ curve6（elev=−twilight°）两条 [lon,lat] 折线；
+ * curve6 可为 null（该经度列整列昼/蒙影、无真夜，分点附近出现）。
  *
  * 语法约束：ES2017 子集（禁 ?. / ?? / #private，无 ES module，IIFE 挂 window）。
  */
@@ -51,13 +79,15 @@
   var J2000_EPOCH_JD = 2451545.0;
   // DAYS_PER_CENTURY：一个儒略世纪的天数
   var DAYS_PER_CENTURY = 36525.0;
-  // _JD_EPOCH_ORDINAL_OFFSET：date.toordinal() + 本常量 = 当日 0h 儒略日
+  // JD_EPOCH_ORDINAL_OFFSET：date.toordinal() + 本常量 = 当日 0h 儒略日
   var JD_EPOCH_ORDINAL_OFFSET = 1721424.5;
-  // _POLE_COS_EPS：判定"极点"的 |cos(lat)| 阈值
+  // POLE_COS_EPS：判定"极点"的 |cos(lat)| 阈值
   var POLE_COS_EPS = 1e-12;
-  // _ACOS_EPS：acos 参数越界 [-1,1] 的数值容差
+  // ACOS_EPS：acos 参数越界 [-1,1] 的数值容差
   var ACOS_EPS = 1e-12;
-  // _SECONDS_PER_DAY
+  // LAT_RANGE_EPS：晨昏线候选纬度落入 [-90,90] 的边界容差（度）
+  var LAT_RANGE_EPS = 1e-9;
+  // SECONDS_PER_DAY
   var SECONDS_PER_DAY = 86400.0;
 
   // 1970-01-01 00:00 UTC 的 date.toordinal()；Python datetime.min/max 的序号
@@ -68,8 +98,6 @@
   // 时间单位（内部 {days, us} 表示法；us 为当日微秒，[0, 86400e6)）
   var US_PER_MS = 1000;         // 1 毫秒 = 1000 微秒（ms→us 换算，勿用 US_PER_SECOND）
   var MS_PER_SECOND = 1000;
-  var MS_PER_MINUTE = 60000;
-  var MS_PER_HOUR = 3600000;
   var MS_PER_DAY = 86400000;
   var US_PER_SECOND = 1000000;
   var US_PER_MINUTE = 60000000;
@@ -95,7 +123,7 @@
   }
 
   /* Python round()（无 ndigits）：四舍五入、半数取偶。
-   * JS Math.round 半数取正，且 terminator_bands 的行数依赖此语义。 */
+   * JS Math.round 半数取正，且 terminator_curves 的列数依赖此语义。 */
   function _roundHalfEven(x) {
     var f = Math.floor(x);
     var d = x - f;
@@ -104,20 +132,21 @@
     return (f % 2 === 0) ? f : f + 1;
   }
 
-  /* 对应 Python 的 float()：数值直接返回；字符串按 Python float(str) 语义转换；
-   * 其它类型对应 Python 的 TypeError。 */
+  /* 对应 Python 的 float()：数值直接返回；字符串按 Python float(str) 语义转换。
+   * solar.py 中所有 float() 失败路径（_check_lat/_norm_lon/terminator_curves
+   * 的实参校验）都收敛为 ValueError，故这里统一抛 RangeError（见文件头 5）。 */
   function _toNum(v, name) {
     var t = typeof v;
     if (t === 'number') { return v; }
     if (t === 'string') {
       var n = Number(v);
       if (!isNaN(n)) { return n; }
-      throw new TypeError(name + ' 必须是实数，得到 ' + v);
+      throw new RangeError(name + ' 必须是实数，得到 ' + v);
     }
-    throw new TypeError(name + ' 必须是实数，得到 ' + t);
+    throw new RangeError(name + ' 必须是实数，得到 ' + t);
   }
 
-  // _check_lat：纬度必须是 [-90, 90] 内的有限实数
+  // _check_lat：纬度必须是 [-90, 90] 内的有限实数（Python ValueError）
   function _checkLat(latDeg) {
     var lat = _toNum(latDeg, '纬度');
     if (!isFinite(lat) || lat < -90.0 || lat > 90.0) {
@@ -126,25 +155,16 @@
     return lat;
   }
 
-  // _norm_lon：经度归一化到 [-180, 180)
+  /* _norm_lon：经度归一化到 [-180, 180]。
+   * 忠实复现 Python：((lon + 180.0) % 360.0) - 180.0，且结果恰为 −180.0 时
+   * 映射为 180.0（Python 的端点归一处，subsolar_lon 归一化依赖此语义）。 */
   function _normLon(lonDeg) {
     var lon = _toNum(lonDeg, '经度');
     if (!isFinite(lon)) {
-      throw new RangeError('经度必须是有限实数: ' + lonDeg);
+      throw new RangeError('经度必须是有限实数，得到 ' + lonDeg);
     }
-    return _pymod(lon + 180.0, 360.0) - 180.0;
-  }
-
-  /* _norm_lon_360：经度归一化到 [0, 360)。
-   * 注意 JS/Python 的 % 对绝对值极小的负数会舍入回 360.0（如 -1e-16 % 360），
-   * 这里显式吸附回 0.0，保证严格满足 [0, 360) 的契约区间。 */
-  function _normLon360(lonDeg) {
-    var lon = _toNum(lonDeg, '经度');
-    if (!isFinite(lon)) {
-      throw new RangeError('经度必须是有限实数: ' + lonDeg);
-    }
-    lon = _pymod(lon, 360.0);
-    return lon >= 360.0 ? 0.0 : lon;
+    lon = _pymod(lon + 180.0, 360.0) - 180.0;
+    return lon === -180.0 ? 180.0 : lon;
   }
 
   // _zone：校验 IANA 时区名（非法名对应 Python 的 ValueError）
@@ -310,21 +330,12 @@
     return _msToT(tMs);
   }
 
-  /* 当地墙上时钟的 "HH:MM"（截断到分，对应 Python aware datetime 的
-   * strftime('%H:%M')）。 */
-  function _fmtHM(t, tzName) {
-    var f = _tzWallFields(_tToMs(t), tzName);
-    return _pad2(f.hour) + ':' + _pad2(f.minute);
-  }
-
-  function _pad2(n) { return n < 10 ? '0' + n : String(n); }
-
   // ---------------------------------------------------------------------------
   // 核心：儒略日与太阳位置（对应 julian_day / solar_position）
   // ---------------------------------------------------------------------------
 
   /* 对应 julian_day(dt_utc)：
-   *   _JD_EPOCH_ORDINAL_OFFSET + ordinal + seconds / 86400.0
+   *   JD_EPOCH_ORDINAL_OFFSET + ordinal + seconds / 86400.0
    * 其中 ordinal = date.toordinal()，seconds 由 UTC 时钟字段组装。
    * （与 date.getTime()/86400000 + 2440587.5 等价；此处按 Python 的
    *  运算顺序逐项复现，保证儒略日逐位一致——GMST 对儒略日的灵敏度高达
@@ -342,7 +353,9 @@
     return f.hour + f.minute / 60.0 + f.second / 3600.0 + f.microsecond / 3.6e9;
   }
 
-  /* 对应 solar_position(dt_utc)：Meeus 第 25 章（含章动与光行差修正）。 */
+  /* 对应 solar_position(dt_utc)：Meeus 第 25 章（含章动与光行差修正）。
+   * 返回 {declinationDeg, subsolarLonDeg, eqOfTimeMin, gmstDeg}（对应
+   * SolarPosition 的四个字段）。 */
   function _solarPositionFromT(t) {
     var jd = _julianDayFromT(t);
     var tt = (jd - J2000_EPOCH_JD) / DAYS_PER_CENTURY;   // 儒略世纪（solar.py 的 t）
@@ -370,24 +383,24 @@
     var rightAscension = _rad2deg(Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam)));
     var declination = _rad2deg(Math.asin(Math.sin(eps) * Math.sin(lam)));
 
-    // --- 格林尼治平恒星时（IAU 1982，度）---
+    // --- 格林尼治平恒星时（IAU 1982，度）：Python 的 `% 360.0`（恒非负）---
     var gmst = _pymod(280.46061837 + 360.98564736629 * (jd - J2000_EPOCH_JD)
       + 0.000387933 * tt * tt - (tt * tt * tt) / 38710000.0, 360.0);
 
-    // --- 直射点经度 = 视赤经 − GMST（[-180, 180)）---
+    // --- 直射点经度 = _norm_lon(视赤经 − GMST)：[-180, 180]，−180 映射为 180 ---
     var subsolarLon = _pymod(rightAscension - gmst + 180.0, 360.0) - 180.0;
+    if (subsolarLon === -180.0) { subsolarLon = 180.0; }
 
     // --- 时差（分钟）：真太阳时 − 平太阳时 ---
     // 格林尼治真太阳时 = 12 + (GMST − α)/15 ；格林尼治平太阳时 = UT
     var utHours = _utHoursFromT(t);
     var eqHours = 12.0 + (gmst - rightAscension) / 15.0 - utHours;
-    var eqMin = _pymod(eqHours * 60.0, 1440.0);
+    var eqMin = _pymod(eqHours * 60.0, 1440.0);   // Python 的 `% 1440.0`
     if (eqMin > 720.0) { eqMin -= 1440.0; }
 
     return {
       declinationDeg: declination,
-      subsolarLat: declination,
-      subsolarLon: subsolarLon,
+      subsolarLonDeg: subsolarLon,
       eqOfTimeMin: eqMin,
       gmstDeg: gmst
     };
@@ -402,8 +415,8 @@
     var lat = _checkLat(latDeg);
     var lon = _normLon(lonDeg);
     var pos = _solarPositionFromT(t);
-    // 当地时角 = GMST + 东经 − 赤经 = 东经 − 直射点经度（与 GMST/α 严格自洽）
-    var hourAngle = lon - pos.subsolarLon;
+    // 当地时角 = 东经 − 直射点经度（与 GMST/α 严格自洽）
+    var hourAngle = lon - pos.subsolarLonDeg;
     var sinH = _sinDeg(lat) * _sinDeg(pos.declinationDeg)
       + _cosDeg(lat) * _cosDeg(pos.declinationDeg) * Math.cos(_deg2rad(hourAngle));
     sinH = Math.max(-1.0, Math.min(1.0, sinH));
@@ -426,7 +439,7 @@
     };
   }
 
-  /* 对应 hour_angle_sunset 主体（纬度已校验、 depression 已取默认值）。
+  /* 对应 hour_angle_sunset 主体（纬度已校验、depression 已取默认值）。
    * |cosH0| > 1（极昼/极夜）或极点 → null。 */
   function _hourAngleSunsetCore(latDeg, declinationDeg, depressionDeg) {
     var r = _cosHourAngle(latDeg, declinationDeg, depressionDeg);
@@ -453,67 +466,129 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 晨昏线（对应 terminator_bands）
+  // 晨昏线（按经度列求解，对应 terminator_curves / _column_lat0 / _column_lat6，
+  // 契约 §1.1）
   // ---------------------------------------------------------------------------
 
-  function _terminatorBandsFromT(t, latStepDeg) {
-    var step = _toNum(latStepDeg, 'lat_step_deg');
+  /* 对应 _wrap180：wrap(a) = ((a+180) mod 360) − 180，结果 ∈ [−180, 180)。
+   * 对整个候选角度只做一次 wrap；不得再对结果做 ±180 归一切换
+   * （那会翻转 A·sinφ + B·cosφ = sin d 的符号）。 */
+  function _wrap180(a) { return _pymod(a + 180.0, 360.0) - 180.0; }
+
+  // 对应 _in_lat_range：候选纬度是否落在 [-90, 90]（含边界容差）
+  function _inLatRange(phi) {
+    return -90.0 - LAT_RANGE_EPS <= phi && phi <= 90.0 + LAT_RANGE_EPS;
+  }
+
+  // 对应 _clamp_lat：把纬度吸附到 [-90, 90]（仅边界容差内的数值会被改动）
+  function _clampLat(phi) {
+    if (phi < -90.0) { return -90.0; }
+    if (phi > 90.0) { return 90.0; }
+    return phi;
+  }
+
+  /* 对应 _column_lat0：解 A·sinφ + B·cosφ = 0。
+   * 候选 wrap(−θ)、wrap(180−θ)，保留 [−90,90] 的。恰有一个在区间内（一般情况）；
+   * 仅当 δ=0（分点瞬间，测度零）两个都在（±90），此时取 wrap(−θ)
+   * （day 列得 −90、night 列得 +90，语义正确）。 */
+  function _columnLat0(thetaDeg) {
+    var cand1 = _wrap180(-thetaDeg);
+    var cand2 = _wrap180(180.0 - thetaDeg);
+    var has1 = _inLatRange(cand1);
+    var has2 = _inLatRange(cand2);
+    if (has1 && has2) { return _clampLat(cand1); }  // δ=0 退化：按契约取 wrap(−θ)
+    if (has1) { return _clampLat(cand1); }
+    if (has2) { return _clampLat(cand2); }
+    // 数学上不可达：两个解相差 180°，闭半圆 [-90,90] 必含其一。
+    throw new Error('curve0 无解（不应发生，对应 Python AssertionError）');
+  }
+
+  /* 对应 _column_lat6：解 A·sinφ + B·cosφ = sin d（d=−twilight），返回 lat6 或 null。
+   * 候选 φ1 = wrap(asin(sin d/R) − θ)、φ2 = wrap(180 − asin(sin d/R) − θ)；
+   * 每个候选只 wrap 一次（禁止 ±180 归一切换——会翻转等式符号）。
+   * |sin d| > R → null（该列最低高度 −asin(R) > −twilight，整列昼/蒙影）；
+   * 0 个候选落区间 → null；≥1 个 → 取夜半球侧且最靠近 lat0 的。 */
+  function _columnLat6(thetaDeg, rValue, sinD, lat0, nightNorth) {
+    if (Math.abs(sinD) > rValue) {
+      return null;  // 整列昼/蒙影，无真夜
+    }
+    var ratio = Math.max(-1.0, Math.min(1.0, sinD / rValue));
+    var alpha = _rad2deg(Math.asin(ratio));
+    var cand1 = _wrap180(alpha - thetaDeg);
+    var cand2 = _wrap180(180.0 - alpha - thetaDeg);
+    var cands = [];
+    if (_inLatRange(cand1)) { cands.push(cand1); }
+    if (_inLatRange(cand2)) { cands.push(cand2); }
+    if (cands.length === 0) { return null; }
+    // 夜半球侧：night_north 时 φ > lat0，否则 φ < lat0
+    var nightSide = [];
+    for (var i = 0; i < cands.length; i++) {
+      if (nightNorth ? cands[i] > lat0 : cands[i] < lat0) { nightSide.push(cands[i]); }
+    }
+    var pool = nightSide.length > 0 ? nightSide : cands;
+    // 对应 Python min(pool, key=lambda c: abs(c - lat0))：并列取第一个
+    var best = pool[0];
+    var bestD = Math.abs(pool[0] - lat0);
+    for (var j = 1; j < pool.length; j++) {
+      var d = Math.abs(pool[j] - lat0);
+      if (d < bestD) { best = pool[j]; bestD = d; }
+    }
+    return _clampLat(best);
+  }
+
+  /* 对应 terminator_curves(dt_utc, lon_step_deg=1.0, twilight_deg=6.0)：
+   * 按经度列逐列求解 curve0（elev=0°）与 curve6（elev=−twilight°）。
+   * 返回 {subsolarLatDeg, subsolarLonDeg, declinationDeg, nightNorth,
+   *       lonStepDeg, curve0: [[lon,lat0]...], curve6: [[lon,lat6|null]...]}。 */
+  function _terminatorCurvesFromT(t, lonStepDeg, twilightDeg) {
+    var step = _toNum(lonStepDeg, 'lon_step_deg');
+    var twilight = _toNum(twilightDeg, 'twilight_deg');
     if (!isFinite(step) || step <= 0.0) {
-      throw new RangeError('lat_step_deg 必须是正实数，得到 ' + latStepDeg);
+      throw new RangeError('lon_step_deg 必须是正实数，得到 ' + lonStepDeg);
+    }
+    if (!isFinite(twilight) || twilight < 0.0) {
+      throw new RangeError('twilight_deg 必须是非负实数，得到 ' + twilightDeg);
     }
 
     var pos = _solarPositionFromT(t);
     var decl = pos.declinationDeg;
-    var subLon = pos.subsolarLon;
+    var subLon = pos.subsolarLonDeg;
+    // 夜半球侧：δ < 0 → 夜在北侧（lat > lat0）；δ ≥ 0 → 夜在南侧（lat < lat0）
+    var nightNorth = decl < 0.0;
     var sinDec = _sinDeg(decl);
     var cosDec = _cosDeg(decl);
-    var sinDep = Math.sin(_deg2rad(-SUNSET_DEPRESSION_DEG));   // sin(−0.833°)
+    var sinD = Math.sin(_deg2rad(-twilight));  // sin(−twilight°)
 
-    // n_intervals = int(round(180.0 / step))（Python round 半数取偶）
-    var nIntervals = _roundHalfEven(180.0 / step);
-    if (nIntervals < 1) { nIntervals = 1; }
-    var rows = [];
-    for (var i = 0; i <= nIntervals; i++) {
-      var lat = -90.0 + i * step;
-      if (i === nIntervals) { lat = 90.0; }   // 端点吸附，避免浮点误差
-      lat = Math.max(-90.0, Math.min(90.0, lat));
-      var sinPhi = _sinDeg(lat);
-      var cosPhi = _cosDeg(lat);
+    // n = max(int(round(360.0 / step)), 1)（Python round 半数取偶）
+    var n = Math.max(_roundHalfEven(360.0 / step), 1);
+    var curve0 = [];
+    var curve6 = [];
+    for (var i = 0; i <= n; i++) {
+      var lon = -180.0 + i * step;
+      if (i === n) { lon = 180.0; }   // 端点吸附，避免浮点累积误差
+      lon = Math.max(-180.0, Math.min(180.0, lon));
 
-      if (Math.abs(cosPhi) < POLE_COS_EPS) {
-        rows.push({
-          lat: lat, nightStartLon: null, nightEndLon: null,
-          kind: _polarKindAtPole(lat, decl, SUNSET_DEPRESSION_DEG)
-        });
-        continue;
-      }
+      // 该经度列的方程 A·sinφ + B·cosφ = sin d（H = lon − subsolar_lon）
+      var hourAngle = lon - subLon;
+      var aValue = sinDec;
+      var bValue = cosDec * Math.cos(_deg2rad(hourAngle));
+      var rValue = Math.hypot(aValue, bValue);
+      var thetaDeg = _rad2deg(Math.atan2(bValue, aValue));
 
-      var cosH0 = (sinDep - sinPhi * sinDec) / (cosPhi * cosDec);
-      if (cosH0 < -1.0 - ACOS_EPS) {
-        // 全天高度 > −0.833°：无夜
-        rows.push({ lat: lat, nightStartLon: null, nightEndLon: null, kind: 'polar_day' });
-        continue;
-      }
-      if (cosH0 > 1.0 + ACOS_EPS) {
-        // 全天高度 < −0.833°：无日
-        rows.push({ lat: lat, nightStartLon: null, nightEndLon: null, kind: 'polar_night' });
-        continue;
-      }
-      var h0 = _rad2deg(Math.acos(Math.max(-1.0, Math.min(1.0, cosH0))));
-      // 夜弧：自日落经线（sub+H0）向东到日出经线（sub−H0）
-      var nightStart = _normLon360(subLon + h0);
-      var nightEnd = _normLon360(subLon - h0);
-      rows.push({
-        lat: lat, nightStartLon: nightStart, nightEndLon: nightEnd, kind: 'normal'
-      });
+      var lat0 = _columnLat0(thetaDeg);
+      var lat6 = _columnLat6(thetaDeg, rValue, sinD, lat0, nightNorth);
+      curve0.push([lon, lat0]);
+      curve6.push([lon, lat6]);
     }
 
     return {
-      subsolarLat: pos.subsolarLat,
-      subsolarLon: subLon,
+      subsolarLatDeg: decl,
+      subsolarLonDeg: subLon,
       declinationDeg: decl,
-      latStepDeg: step,
-      rows: rows
+      nightNorth: nightNorth,
+      lonStepDeg: step,
+      curve0: curve0,
+      curve6: curve6
     };
   }
 
@@ -544,7 +619,7 @@
   function _hourAngleRateT(t) {
     var p = _solarPositionFromT(t);
     var pNext = _solarPositionFromT(_addHours(t, 0.5));
-    return _pymod(p.subsolarLon - pNext.subsolarLon, 360.0) / 0.5;
+    return _pymod(p.subsolarLonDeg - pNext.subsolarLonDeg, 360.0) / 0.5;
   }
 
   /* 对应 _time_at_hour_angle：求当地时角（东经 − 直射点经度）等于 haDeg 的
@@ -553,7 +628,7 @@
     var t = _addHours(tNoon, haDeg / 15.0);   // 理想 15°/h 的初始估计
     for (var i = 0; i < 2; i++) {
       var p = _solarPositionFromT(t);
-      var ha = _pymod(lonDeg - p.subsolarLon + 180.0, 360.0) - 180.0;
+      var ha = _pymod(lonDeg - p.subsolarLonDeg + 180.0, 360.0) - 180.0;
       var rate = _hourAngleRateT(t);
       t = _addHours(t, (_pymod(haDeg - ha + 180.0, 360.0) - 180.0) / rate);
     }
@@ -587,7 +662,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // 公开接口（window.TimeSolar；契约 §1 冻结签名）
+  // 公开接口（window.TimeSolar；契约 §1.2 冻结签名）
   // ---------------------------------------------------------------------------
 
   var TimeSolar = {
@@ -597,7 +672,8 @@
       return _julianDayFromT(_dateToT(date));
     },
 
-    /* solar_position(dt_utc)：赤纬 / 直射点经纬度 / 时差 / GMST。 */
+    /* solar_position(dt_utc)：赤纬 / 直射点经度 / 时差 / GMST。
+     * 返回 {declinationDeg, subsolarLonDeg, eqOfTimeMin, gmstDeg}。 */
     solarPosition: function (date) {
       return _solarPositionFromT(_dateToT(date));
     },
@@ -607,11 +683,22 @@
       return _solarElevationFromT(_dateToT(date), latDeg, lonDeg);
     },
 
+    /* terminator_curves(dt, lon_step_deg=1.0, twilight_deg=6.0)：
+     * 按经度列求解的晨昏线。curve0/curve6 各 round(360/lon_step)+1 项，
+     * lon_i = −180 + i·lon_step（含两端）；curve6 项为 [lon, lat6|null]
+     * （null = 该列整列昼/蒙影、无真夜，前端必须按 null 语义处理）。 */
+    terminatorCurves: function (date, lonStepDeg, twilightDeg) {
+      var step = (lonStepDeg === undefined) ? 1.0 : lonStepDeg;
+      var twi = (twilightDeg === undefined) ? 6.0 : twilightDeg;
+      return _terminatorCurvesFromT(_dateToT(date), step, twi);
+    },
+
     /* hour_angle_sunset(lat, decl, depression=0.833)：
      * H0（度，[0,180]）；|cosH0|>1（极昼/极夜）或极点 → null。 */
     hourAngleSunset: function (latDeg, declinationDeg, depressionDeg) {
       var lat = _checkLat(latDeg);
-      var dep = (depressionDeg === undefined) ? SUNSET_DEPRESSION_DEG : _toNum(depressionDeg, 'depression_deg');
+      var dep = (depressionDeg === undefined) ? SUNSET_DEPRESSION_DEG
+        : _toNum(depressionDeg, 'depression_deg');
       var dec = _toNum(declinationDeg, 'declination_deg');
       if (!isFinite(dec) || !isFinite(dep)) {
         throw new RangeError('declination_deg / depression_deg 必须是有限实数');
@@ -619,15 +706,8 @@
       return _hourAngleSunsetCore(lat, dec, dep);
     },
 
-    /* terminator_bands(dt, lat_step=0.5)：按纬度分层的夜弧区间。
-     * rows 共 round(180/step)+1 行，lat 从 -90 到 +90（含端点）；
-     * nightStartLon/nightEndLon 在极昼/极夜行为 null。 */
-    terminatorBands: function (date, latStepDeg) {
-      var step = (latStepDeg === undefined) ? 0.5 : latStepDeg;
-      return _terminatorBandsFromT(_dateToT(date), step);
-    },
-
-    /* day_length_hours(dt, lat, lon)：昼长（小时）；极昼 24.0、极夜 0.0。 */
+    /* day_length_hours(dt, lat, lon)：昼长（小时）；极昼 24.0、极夜 0.0。
+     * 以查询时刻所在的太阳日为基准（不动点迭代收敛到距它最近的太阳正午）。 */
     dayLengthHours: function (date, latDeg, lonDeg) {
       var t = _dateToT(date);
       var lat = _checkLat(latDeg);
@@ -639,11 +719,11 @@
       return _diffHours(ev.rise, ev.set);
     },
 
-    /* sunrise_sunset(dt, lat, lon, tz_name) 的"当地 HH:MM 展示"：
-     * 以 date 在 tzName 时区的当地日期为基准日，返回
-     * {sunrise, sunset, dayLengthHours}；极昼/极夜对应 null。
-     * 处理 UTC/当地日期错位、跨日界线时区（UTC+14/-11）与事件时刻处的
-     * 赤纬迭代修正（与 Python 共用 _day_events 迭代结构）。 */
+    /* sunrise_sunset(dt, lat, lon, tz_name)：以 date 在 tzName 时区的当地
+     * 日期为基准日，返回 {sunrise, sunset}（当地时区的 Date 对象，即
+     * Python 中 t.astimezone(tz) 的同一瞬间；展示层自行格式化）。
+     * 极昼/极夜对应 null。正确处理 UTC 日期与当地日期不一致、跨日界线 /
+     * 跨子午线的情况，以及事件时刻处的赤纬迭代修正。 */
     sunriseSunsetLocal: function (date, latDeg, lonDeg, tzName) {
       var t = _dateToT(date);
       var lat = _checkLat(latDeg);
@@ -651,16 +731,15 @@
       _checkTz(tzName);
       // 当地日期（对应 dt.astimezone(tz).date()）
       var wall = _tzWallFields(_tToMs(t), tzName);
-      // 日期锚点：当地钟表正午对应的 UTC 时刻
+      // 日期锚点：当地钟表正午对应的 UTC 时刻（与真太阳正午相差不超过数小时）
       var localNoon = _localNoonT(wall.year, wall.month, wall.day, tzName);
       var ev = _dayEvents(localNoon, lat, lon);
       if (ev.rise === null || ev.set === null) {
-        return { sunrise: null, sunset: null, dayLengthHours: null };
+        return { sunrise: null, sunset: null };
       }
       return {
-        sunrise: _fmtHM(ev.rise, tzName),
-        sunset: _fmtHM(ev.set, tzName),
-        dayLengthHours: _diffHours(ev.rise, ev.set)
+        sunrise: new Date(_tToMs(ev.rise)),
+        sunset: new Date(_tToMs(ev.set))
       };
     }
   };

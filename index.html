@@ -1,67 +1,20 @@
 <!doctype html><html lang="zh-CN"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>时间 · 晨昏线世界时钟</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>无世界时钟</title>
 <link rel="stylesheet" href="static/css/style.css">
-<link rel="stylesheet" href="static/css/aux.css">
-<link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#0a0a0c">
 </head><body>
-<div class="window">
-  <div class="titlebar">
-    <div class="lights"><span class="light red"></span><span class="light yellow"></span><span class="light green"></span></div>
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="world">世界时钟</button>
-      <button class="tab-btn" data-tab="alarms">闹钟</button>
-      <button class="tab-btn" data-tab="stopwatch">秒表</button>
-      <button class="tab-btn" data-tab="timer">计时器</button>
-    </nav>
-    <button id="add-city-btn" class="add-btn" title="添加城市">+</button>
-  </div>
-  <main class="content">
-    <section id="tab-world" class="tab-pane active">
-      <div class="map-wrap"><canvas id="world-map"></canvas></div>
-      <div id="location-banner" class="location-banner">
-        <span id="location-text" class="location-text">正在获取当前位置…</span>
-        <button id="relocate-btn" class="relocate-btn" type="button">重新定位</button>
-      </div>
-      <div class="location-panel">
-        <div id="location-clock" class="loc-clock"></div>
-        <div class="loc-info">
-          <div id="loc-city" class="loc-city">--</div>
-          <div id="loc-time" class="loc-time">--:--:--</div>
-          <div id="loc-meta" class="loc-meta">--</div>
-          <div id="loc-sun" class="loc-sun">--:-- / --:--</div>
-        </div>
-      </div>
-      <div id="city-cards" class="city-cards"></div>
-    </section>
-    <section id="tab-alarms" class="tab-pane"><div id="alarms-root"></div></section>
-    <section id="tab-stopwatch" class="tab-pane"><div id="stopwatch-root"></div></section>
-    <section id="tab-timer" class="tab-pane"><div id="timer-root"></div></section>
-  </main>
+<canvas id="map-canvas"></canvas>
+<div class="scrim" aria-hidden="true"></div>
+<div class="hud">
+  <div id="clock" class="clock">--:--:--</div>
+  <div id="loc-line" class="loc-line"></div>
+  <div id="sun-line" class="sun-line"></div>
 </div>
-<div id="city-picker" class="picker hidden">
-  <div class="picker-panel">
-    <div class="picker-head">
-      <input id="city-search" class="picker-search" type="search" placeholder="搜索城市（中文 / English）" autocomplete="off">
-      <button id="picker-close" class="picker-close" type="button" title="关闭">×</button>
-    </div>
-    <ul id="city-list" class="picker-list"></ul>
-    <div class="picker-foot">
-      <span id="picker-count" class="picker-count">已选 0 座</span>
-      <button id="picker-confirm" class="picker-confirm" type="button">添加所选</button>
-    </div>
-  </div>
-</div>
-<script src="static/js/api.js"></script>
-<script src="static/js/static-backend.js"></script>
-<script src="static/js/cities-data.js"></script>
 <script src="static/js/solar-engine.js"></script>
+<script src="static/js/tz-coords.js"></script>
+<script src="static/js/static-backend.js"></script>
+<script src="static/js/api.js"></script>
 <script src="static/js/map.js"></script>
-<script src="static/js/clock.js"></script>
 <script src="static/js/app.js"></script>
-<script src="static/js/stopwatch.js"></script>
-<script src="static/js/timer.js"></script>
-<script src="static/js/alarms.js"></script>
-<script>if ('serviceWorker' in navigator) {window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js'); });}</script>
 </body></html>
