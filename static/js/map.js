@@ -13,7 +13,9 @@
 (function () {
   'use strict';
 
-  var LAND_URL = '/data/world_land.json';
+  /* 相对路径：Flask 版页面在 / 与 Pages 版页面在 /time/ 下都能正确解析
+   * （绝对路径 /data/... 在子路径部署下会 404）。 */
+  var LAND_URL = 'data/world_land.json';
   var LAND_FILL = '#3a3a3c';
   var NIGHT_FILL = 'rgba(0, 0, 0, 0.45)';
   var FONT_STACK = '-apple-system,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif';

@@ -39,8 +39,12 @@
   // IUGG 平均地球半径（km），haversine 用（同 app/cities.py）
   var EARTH_RADIUS_KM = 6371.0088;
 
-  // IP 定位（同 app/geo.py）
-  var IP_API_URL = 'http://ip-api.com/json/?lang=zh-CN';
+  // IP 定位（静态版浏览器直连；HTTPS 部署下 http 源会被混合内容策略拦截，
+  // 故优先用支持 HTTPS+CORS 的 geojs，ip-api 作 http 部署的回退）
+  var IP_API_URLS = [
+    'https://get.geojs.io/v1/ip/geo.json',
+    'http://ip-api.com/json/?lang=zh-CN'
+  ];
   var IP_TIMEOUT_MS = 3000;      // 3 秒超时
   var IP_CACHE_MS = 600000;      // 10 分钟缓存（成功与失败都缓存）
 
@@ -423,15 +427,25 @@
     return { lat: v.lat, lon: v.lon, city: v.city, source: v.source };
   }
 
+  /* 解析两类定位响应：geojs（latitude/longitude 字符串）与
+   * ip-api（status=success + lat/lon 数字）。 */
   function parseIp(payload) {
     if (!payload || typeof payload !== 'object') return null;
-    if (payload.status !== 'success') return null;
-    if (payload.lat === null || payload.lat === undefined ||
-        payload.lon === null || payload.lon === undefined) return null;
-    var lat = Number(payload.lat);
-    var lon = Number(payload.lon);
-    if (!isFinite(lat) || !isFinite(lon)) return null;
-    return { lat: lat, lon: lon, city: (payload.city == null ? '' : String(payload.city)), source: 'ip' };
+    var lat = null, lon = null;
+    if (payload.status !== undefined && payload.status !== 'success') return null;
+    if (payload.latitude !== null && payload.latitude !== undefined &&
+        payload.longitude !== null && payload.longitude !== undefined) {
+      lat = Number(payload.latitude);
+      lon = Number(payload.longitude);
+    } else if (payload.lat !== null && payload.lat !== undefined &&
+               payload.lon !== null && payload.lon !== undefined) {
+      lat = Number(payload.lat);
+      lon = Number(payload.lon);
+    }
+    if (lat === null || lon === null || !isFinite(lat) || !isFinite(lon)) return null;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    var city = (payload.city === null || payload.city === undefined) ? '' : String(payload.city);
+    return { lat: lat, lon: lon, city: city, source: 'ip' };
   }
 
   function fetchWithTimeout(url, ms) {
@@ -453,17 +467,28 @@
     });
   }
 
+  /* 依次尝试 IP_API_URLS（HTTPS 优先）；全部失败 → null。
+   * 任一源成功即返回；失败也缓存 10 分钟（避免 1Hz 定位链反复敲门）。 */
   function ipLocation() {
     var nowMs = Date.now();
     if (_ipCache && _ipCache.expiresAt > nowMs) {
       return Promise.resolve(_ipCache.value ? copyIp(_ipCache.value) : null);
     }
-    return fetchWithTimeout(IP_API_URL, IP_TIMEOUT_MS).then(function (resp) {
-      return resp.json();
-    }).then(function (payload) {
-      var value = parseIp(payload);
+    var chain = Promise.reject(new Error('no source'));
+    IP_API_URLS.forEach(function (url) {
+      chain = chain.catch(function () {
+        return fetchWithTimeout(url, IP_TIMEOUT_MS).then(function (resp) {
+          return resp.json();
+        }).then(function (payload) {
+          var value = parseIp(payload);
+          if (value) return value;
+          throw new Error('无法解析: ' + url);
+        });
+      });
+    });
+    return chain.then(function (value) {
       _ipCache = { value: value, expiresAt: Date.now() + IP_CACHE_MS };
-      return value ? copyIp(value) : null;
+      return copyIp(value);
     }).catch(function () {
       _ipCache = { value: null, expiresAt: Date.now() + IP_CACHE_MS };
       return null;
