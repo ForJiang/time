@@ -193,11 +193,23 @@
     if (readyTimer) { clearTimeout(readyTimer); readyTimer = 0; }
   }
 
+  /* 地图初始化延后到 boot 关键路径之外：无头/GPU 争用下 getContext 可能把
+   * 渲染主线程堵死数十秒（连 setTimeout 都无法触发），时钟/状态/__timeReady
+   * 不能陪葬。init 期间到达的状态在 init 后立即补渲染；后续 1Hz 轮询兜底。 */
+  function initMap() {
+    try {
+      MapView.init($('map-canvas'));
+      if (state) MapView.render(state);
+    } catch (e) { /* 地图初始化失败：降级为无背景，时钟照常 */ }
+  }
+
   function boot() {
     clockEl = $('clock');
     locEl = $('loc-line');
     sunEl = $('sun-line');
-    MapView.init($('map-canvas'));
+    /* 时钟优先启动 */
+    tick();
+    setTimeout(initMap, 0);
     var landP = loadLand();
     requestGeo();
     /* 启动即带浏览器时区作 tz_hint：服务端定位链第三级（浏览器时区→近似坐标，
@@ -206,7 +218,6 @@
       stateDone = true;
       maybeReady();
     });
-    tick();
     startPolling();
     /* 兜底：数据请求悬挂超过 READY_FALLBACK_MS 也放行同步点 */
     readyTimer = setTimeout(function () {
