@@ -132,12 +132,14 @@
     return (f % 2 === 0) ? f : f + 1;
   }
 
-  /* 对应 Python 的 float()：数值直接返回；字符串按 Python float(str) 语义转换。
+  /* 对应 Python 的 float()：数值直接返回；布尔按 Number(v) 换算（Python 的
+   * float(True)=1.0、float(False)=0.0，布尔实参在 Python 侧合法）；字符串按
+   * Python float(str) 语义转换。
    * solar.py 中所有 float() 失败路径（_check_lat/_norm_lon/terminator_curves
    * 的实参校验）都收敛为 ValueError，故这里统一抛 RangeError（见文件头 5）。 */
   function _toNum(v, name) {
     var t = typeof v;
-    if (t === 'number') { return v; }
+    if (t === 'number' || t === 'boolean') { return Number(v); }
     if (t === 'string') {
       var n = Number(v);
       if (!isNaN(n)) { return n; }
@@ -494,11 +496,10 @@
   function _columnLat0(thetaDeg) {
     var cand1 = _wrap180(-thetaDeg);
     var cand2 = _wrap180(180.0 - thetaDeg);
-    var has1 = _inLatRange(cand1);
-    var has2 = _inLatRange(cand2);
-    if (has1 && has2) { return _clampLat(cand1); }  // δ=0 退化：按契约取 wrap(−θ)
-    if (has1) { return _clampLat(cand1); }
-    if (has2) { return _clampLat(cand2); }
+    // δ=0 退化时两个候选都在区间内（±90）——取 wrap(−θ) 的 cand1 即满足契约
+    // 语义（day 列得 −90、night 列得 +90），无需对 has1&has2 特判。
+    if (_inLatRange(cand1)) { return _clampLat(cand1); }
+    if (_inLatRange(cand2)) { return _clampLat(cand2); }
     // 数学上不可达：两个解相差 180°，闭半圆 [-90,90] 必含其一。
     throw new Error('curve0 无解（不应发生，对应 Python AssertionError）');
   }
@@ -566,7 +567,8 @@
     for (var i = 0; i <= n; i++) {
       var lon = -180.0 + i * step;
       if (i === n) { lon = 180.0; }   // 端点吸附，避免浮点累积误差
-      lon = Math.max(-180.0, Math.min(180.0, lon));
+      // i < n 时 i·step ≤ 360 − step/2（n = round(360/step)，实数域），
+      // 故 lon ∈ [−180, 180) 恒成立，无需额外 clamp（端点吸附已覆盖 i = n）。
 
       // 该经度列的方程 A·sinφ + B·cosφ = sin d（H = lon − subsolar_lon）
       var hourAngle = lon - subLon;
@@ -615,11 +617,13 @@
 
   /* 对应 _hour_angle_rate：当地时角相对 UTC 的推进速率（度/小时）。
    * 以 t 为中心取 ±0.5 小时差分；差分结果按模 360 归一（直射点经度在
-   * [-180,180) 表示，UT 接近 00:00 时原始差分会跨经线反号）。 */
-  function _hourAngleRateT(t) {
-    var p = _solarPositionFromT(t);
+   * [-180,180) 表示，UT 接近 00:00 时原始差分会跨经线反号）。
+   * pos 可传入调用方已算得的 _solarPositionFromT(t)（纯函数，值相同），
+   * 避免 _timeAtHourAngleT 内重复计算一次；缺省时本函数自行计算。 */
+  function _hourAngleRateT(t, pos) {
+    if (pos === undefined) { pos = _solarPositionFromT(t); }
     var pNext = _solarPositionFromT(_addHours(t, 0.5));
-    return _pymod(p.subsolarLonDeg - pNext.subsolarLonDeg, 360.0) / 0.5;
+    return _pymod(pos.subsolarLonDeg - pNext.subsolarLonDeg, 360.0) / 0.5;
   }
 
   /* 对应 _time_at_hour_angle：求当地时角（东经 − 直射点经度）等于 haDeg 的
@@ -629,7 +633,7 @@
     for (var i = 0; i < 2; i++) {
       var p = _solarPositionFromT(t);
       var ha = _pymod(lonDeg - p.subsolarLonDeg + 180.0, 360.0) - 180.0;
-      var rate = _hourAngleRateT(t);
+      var rate = _hourAngleRateT(t, p);   // 复用已算出的 p，省一次位置计算
       t = _addHours(t, (_pymod(haDeg - ha + 180.0, 360.0) - 180.0) / rate);
     }
     return t;

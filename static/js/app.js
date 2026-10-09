@@ -3,7 +3,7 @@
  * 启动：MapView.init → fetch /data/world_land.json → setLand →
  *       navigator.geolocation.getCurrentPosition（timeout 8s）→ TimeAPI.getState →
  *       秒边界时钟（TimeAPI.now() + Intl.DateTimeFormat 按 state.location.tz）+
- *       1Hz 轮询 /api/state + 定位成功后立即重拉 state。
+ *       1Hz 轮询 /api/state + 定位成功后立即重拉 state + 切回前台立即重同步时钟。
  * 首帧渲染完成后置 window.__timeReady = true（E2E 同步点）。
  *
  * 时钟禁止用服务端 1Hz 的 local_time 驱动秒位（会抖动）；一律以 TimeAPI.now()
@@ -134,6 +134,17 @@
     clockTimer = setTimeout(tick, delay);
   }
 
+  /* 后台标签页的 setTimeout 会被浏览器节流（Chrome 隐藏 5 分钟后降到分钟级），
+   * 回到前台时先作废挂起的旧定时器再立即补刷一次，避免时钟停走/跳变。 */
+  function onVisibility() {
+    if (document.hidden) return;
+    if (clockTimer) {
+      clearTimeout(clockTimer);
+      clockTimer = 0;
+    }
+    tick();
+  }
+
   /* ---------- 状态 ---------- */
   function applyState(st) {
     state = st;
@@ -209,6 +220,7 @@
     sunEl = $('sun-line');
     /* 时钟优先启动 */
     tick();
+    document.addEventListener('visibilitychange', onVisibility);
     setTimeout(initMap, 0);
     var landP = loadLand();
     requestGeo();

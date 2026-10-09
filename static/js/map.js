@@ -37,7 +37,7 @@
   var lastState = null;
   var rafId = 0;
   var pulseEnabled = true;
-  var resizeBound = false;
+  var listenersBound = false;   // init 重复调用时不重复注册监听（防泄漏）
 
   /* ---------- 投影（§6.3 cover） ---------- */
   function xOf(lon) { return W / 2 + lon * scale; }
@@ -76,7 +76,7 @@
   function buildBase() {
     if (!baseCtx) return;
     var g = baseCtx;
-    g.clearRect(0, 0, W, H);
+    /* fillRect 已整幅不透明覆盖，无需先 clearRect */
     g.fillStyle = '#000000';
     g.fillRect(0, 0, W, H);
     drawGrid(g);
@@ -249,7 +249,7 @@
   function buildScene() {
     if (!sceneCtx) return;
     var g = sceneCtx;
-    g.clearRect(0, 0, W, H);
+    /* base 整幅不透明（buildBase 全幅 fillRect），直接覆盖即等于清屏 */
     if (base) g.drawImage(base, 0, 0, W, H);
     if (lastState) {
       drawNight(g, lastState);
@@ -259,7 +259,7 @@
 
   function blit(t) {
     if (!ctx) return;
-    ctx.clearRect(0, 0, W, H);
+    /* scene 整幅不透明，无需 clearRect（每帧热路径，省一次全画布清除） */
     if (scene) ctx.drawImage(scene, 0, 0, W, H);
     drawMarker(ctx, t);
   }
@@ -269,6 +269,19 @@
     if (!canvas || !ctx || document.hidden) return;
     if (!lastState) return;                 // 无状态时静止（底图已在 render/init 时上屏）
     blit(t);
+  }
+
+  /* 脉冲循环按需启停：prefers-reduced-motion 关闭时不能继续空转 60fps 全画布 blit，
+   * 重新开启时也要能拉起循环（否则改回去后脉冲再也不动）。 */
+  function startLoop() {
+    if (!rafId) rafId = window.requestAnimationFrame(frame);
+  }
+
+  function stopLoop() {
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
   }
 
   /* ---------- 对外接口 ---------- */
@@ -296,33 +309,43 @@
     render(lastState);
   }
 
+  /* 当前是否允许脉冲（prefers-reduced-motion: reduce 时禁止）；读失败按允许处理 */
+  function motionAllowed() {
+    if (!window.matchMedia) return true;
+    try {
+      var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      return !(mq && mq.matches);
+    } catch (e) {
+      return true;
+    }
+  }
+
   function init(canvasEl) {
     canvas = canvasEl || null;
     ctx = canvas ? canvas.getContext('2d') : null;
     if (!ctx) return null;
-    if (!resizeBound) {
-      resizeBound = true;
+    if (!listenersBound) {
+      listenersBound = true;
       window.addEventListener('resize', function () { resize(); });
       window.addEventListener('orientationchange', function () { resize(); });
+      if (window.matchMedia) {
+        try {
+          var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+          if (mq && mq.addEventListener) {
+            mq.addEventListener('change', function (e) {
+              pulseEnabled = !e.matches;
+              if (pulseEnabled) startLoop(); else stopLoop();
+              render(lastState);
+            });
+          }
+        } catch (e) { /* 老浏览器无 matchMedia：保持默认允许脉冲 */ }
+      }
     }
-    if (window.matchMedia) {
-      try {
-        var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-        pulseEnabled = !(mq && mq.matches);
-        if (mq && mq.addEventListener) {
-          mq.addEventListener('change', function (e) {
-            pulseEnabled = !e.matches;
-            render(lastState);
-          });
-        }
-      } catch (e) { pulseEnabled = true; }
-    }
+    pulseEnabled = motionAllowed();
     ensureSize();
     buildScene();
     blit(null);
-    if (pulseEnabled && !rafId) {
-      rafId = window.requestAnimationFrame(frame);
-    }
+    if (pulseEnabled) startLoop();
     return window.MapView;
   }
 

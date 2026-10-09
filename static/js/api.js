@@ -9,9 +9,12 @@
 (function () {
   'use strict';
 
+  /* 取数缝在 window.StaticBackend.buildState（不走 fetch）。包一层
+   * Promise.resolve().then：StaticBackend 缺失等同步抛错也归一为 null，
+   * 兑现"绝不抛到调用方"的约定（与 Flask 版网络失败语义一致）。 */
   function getState(params) {
-    return window.StaticBackend.buildState(params || {}).then(function (st) {
-      return st;
+    return Promise.resolve().then(function () {
+      return window.StaticBackend.buildState(params || {});
     }).catch(function () {
       return null;
     });

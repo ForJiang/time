@@ -61,6 +61,13 @@
     return Math.round(v * 100) / 100;
   }
 
+  /* _round4：定位坐标 → 4 位小数（镜像 server.py _round4，契约 §5 示例量级） */
+  function round4(x) {
+    var v = Number(x);
+    if (!isFinite(v)) return null;
+    return Math.round(v * 10000) / 10000;
+  }
+
   /* _round_subsolar_lon：2 位小数；进位到 180.0 时按环形语义吸附回 -180.0 */
   function roundSubsolarLon(v) {
     var r = round2(v);
@@ -129,26 +136,19 @@
     return w.year + '-' + pad2(w.month) + '-' + pad2(w.day) + ' ' + WEEKDAYS_CN[weekday];
   }
 
-  /* utc_offset_hours：当地墙上时间 − UTC 墙上时间（tzdb 偏移均为整秒，精确） */
+  /* utc_offset_hours：当地墙上时间 − UTC 墙上时间（tzdb 偏移均为整秒，精确；
+   * 2 位小数与 server.py _utc_offset_hours 的 round(..., 2) 同口径） */
   function utcOffsetHours(date, tz) {
     var w = wallFields(date, tz);
     if (!w) return 0;
     var wallMs = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second);
-    return Math.round((wallMs - date.getTime()) / 1000) / 3600;
+    var seconds = Math.round((wallMs - date.getTime()) / 1000);
+    return Math.round((seconds / 3600) * 100) / 100;
   }
 
   /* server_time_utc：ISO8601 秒级 +00:00（镜像 Python isoformat） */
   function isoSeconds(date) {
     return date.toISOString().slice(0, 19) + '+00:00';
-  }
-
-  function browserTz() {
-    try {
-      var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      return tz || 'UTC';
-    } catch (e) {
-      return 'UTC';
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -198,7 +198,9 @@
 
   /* 四级链：browser → ip → timezone → default（与 geo.py resolve_location
    * 逐字镜像：tz 只用校验过的 tz_hint，缺失/非法回退 FALLBACK_TZ='UTC'；
-   * 浏览器时区由 app.js 启动时作为 tz_hint 传入，链内不自行读 Intl） */
+   * 浏览器时区由 app.js 启动时作为 tz_hint 传入，链内不自行读 Intl。
+   * 唯一偏离：server.py 对越界 lat/lon 回 400，静态版无 HTTP 层可回，
+   * 越界坐标按"不可用"落入下一级（IP → 时区 → 默认）。 */
   function resolveLocation(params) {
     var p = params || {};
     var lat = (typeof p.lat === 'number' && isFinite(p.lat)) ? p.lat : null;
@@ -214,7 +216,7 @@
       if (ip) {
         return {
           lat: ip.lat, lon: ip.lon, name: ip.city || '',
-          tz: ip.tz || tz || FALLBACK_TZ, source: 'ip'
+          tz: validTz(ip.tz) || tz || FALLBACK_TZ, source: 'ip'
         };
       }
       if (tz !== null) {
@@ -259,8 +261,8 @@
         epoch_ms: date.getTime(),
         server_time_utc: isoSeconds(date),
         location: {
-          lat: loc.lat,
-          lon: loc.lon,
+          lat: round4(loc.lat),
+          lon: round4(loc.lon),
           name: loc.name,
           tz: tz,
           source: loc.source,
@@ -290,10 +292,9 @@
     });
   }
 
+  /* 只导出 buildState：它就是静态版的 /api/state 等价物，也是 static-api.js
+   * 的唯一取数缝；定位链/格式化助手均为内部实现，无外部消费者。 */
   window.StaticBackend = {
-    buildState: buildState,
-    resolveLocation: resolveLocation,
-    ipLocation: ipLocation,
-    fmtDayLength: fmtDayLength
+    buildState: buildState
   };
 })();
