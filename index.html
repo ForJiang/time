@@ -3,6 +3,8 @@
 <title>时间 · 晨昏线世界时钟</title>
 <link rel="stylesheet" href="static/css/style.css">
 <link rel="stylesheet" href="static/css/aux.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a0a0c">
 </head><body>
 <div class="window">
   <div class="titlebar">
@@ -61,4 +63,5 @@
 <script src="static/js/stopwatch.js"></script>
 <script src="static/js/timer.js"></script>
 <script src="static/js/alarms.js"></script>
+<script>if ('serviceWorker' in navigator) {window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js'); });}</script>
 </body></html>

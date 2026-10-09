@@ -1,0 +1,24 @@
+{
+  "name": "时间 · 晨昏线世界时钟",
+  "short_name": "晨昏线时钟",
+  "description": "自动定位 + 秒级时间 + 昼夜分界线可视化",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
