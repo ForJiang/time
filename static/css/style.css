@@ -1,0 +1,411 @@
+/* style.css — 窗口外观 / titlebar / tab / 世界时钟 Tab / 表盘 / 城市卡片 / 定位横幅（W3）
+ *
+ * 分区约定（契约 §7.3）：本文件不含 #alarms-root / #stopwatch-root / #timer-root
+ * 的内部元素样式（那些归 W4 的 aux.css）；这里只给三个 Tab 容器做布局留白。
+ */
+
+:root {
+  --bg-window: #0b0b0d;
+  --bg-panel: #141416;
+  --bg-panel-2: #1c1c1e;
+  --line: rgba(255, 255, 255, 0.10);
+  --text: #f5f5f7;
+  --text-dim: rgba(245, 245, 247, 0.62);
+  --text-faint: rgba(245, 245, 247, 0.40);
+  --accent: #ff9f0a;
+  --font: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  background: radial-gradient(120% 120% at 50% 0%, #2a2a30 0%, #131316 55%, #08080a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 窗口 ---------- */
+.window {
+  width: min(1080px, 96vw);
+  height: min(780px, 94vh);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-window);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- titlebar ---------- */
+.titlebar {
+  flex: 0 0 auto;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: linear-gradient(#26262a, #1b1b1f);
+  border-bottom: 1px solid var(--line);
+}
+
+.lights { display: flex; gap: 8px; }
+
+.light {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: block;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.light.red { background: #ff5f57; }
+.light.yellow { background: #febc2e; }
+.light.green { background: #28c840; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: 20px;
+}
+
+.tab-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.tab-btn:hover { color: var(--text); background: rgba(255, 255, 255, 0.06); }
+
+.tab-btn.active {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.add-btn {
+  appearance: none;
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s ease;
+}
+
+.add-btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+/* ---------- 内容区 / tab ---------- */
+.content {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.tab-pane {
+  display: none;
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+}
+
+.tab-pane.active { display: flex; flex-direction: column; }
+
+/* W4 三个 Tab：只做容器留白，内部样式归 aux.css */
+#tab-alarms.active, #tab-stopwatch.active, #tab-timer.active { display: block; }
+#alarms-root, #stopwatch-root, #timer-root { height: 100%; }
+
+/* ---------- 世界时钟 Tab ---------- */
+#tab-world { gap: 12px; }
+
+.map-wrap {
+  flex: 1 1 auto;
+  min-height: 220px;
+  position: relative;
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+#world-map {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- 定位横幅 ---------- */
+.location-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.location-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.relocate-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.relocate-btn:hover { background: rgba(255, 255, 255, 0.14); color: var(--text); }
+
+/* ---------- 当前定位大面板 ---------- */
+.location-panel {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 20px;
+}
+
+.loc-clock { flex: 0 0 auto; line-height: 0; }
+
+.loc-info { min-width: 0; }
+
+.loc-city {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.loc-time {
+  font-size: 34px;
+  font-weight: 300;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+
+.loc-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+.loc-sun { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
+
+/* ---------- 城市卡片横向列表 ---------- */
+.city-cards {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+
+.city-card {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 124px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 8px 10px;
+  cursor: pointer;
+  font-family: var(--font);
+  color: var(--text);
+  text-align: center;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.city-card:hover {
+  border-color: rgba(255, 159, 10, 0.55);
+  transform: translateY(-1px);
+}
+
+.card-clock { line-height: 0; }
+
+.card-name { font-size: 13px; font-weight: 600; }
+
+.card-time {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-meta { font-size: 11px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+.card-sun { font-size: 10px; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* ---------- 城市选择器弹层 ---------- */
+.picker {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 20px;
+}
+
+.picker.hidden { display: none; }
+
+.picker-panel {
+  width: min(540px, 94vw);
+  max-height: min(76vh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+}
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.picker-search {
+  flex: 1 1 auto;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 8px 11px;
+  outline: none;
+}
+
+.picker-search:focus { border-color: rgba(255, 159, 10, 0.6); }
+
+.picker-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.picker-close:hover { background: rgba(255, 255, 255, 0.1); color: var(--text); }
+
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.picker-item:hover { background: rgba(255, 255, 255, 0.06); }
+
+.picker-item.selected { background: rgba(255, 159, 10, 0.14); }
+
+.picker-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--accent);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.picker-item.selected .picker-check {
+  border-color: rgba(255, 159, 10, 0.7);
+  background: rgba(255, 159, 10, 0.18);
+}
+
+.picker-name { flex: 0 0 auto; font-size: 13px; }
+
+.picker-en { font-size: 11px; color: var(--text-faint); }
+
+.picker-empty { padding: 18px; text-align: center; font-size: 12px; color: var(--text-faint); }
+
+.picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.picker-count { font-size: 12px; color: var(--text-dim); }
+
+.picker-confirm {
+  appearance: none;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #1a1206;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.picker-confirm:hover { filter: brightness(1.08); }
+
+/* ---------- 窄屏兜底 ---------- */
+@media (max-width: 720px) {
+  .window { width: 100vw; height: 100vh; border-radius: 0; }
+  .location-panel { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .loc-time { font-size: 28px; }
+}

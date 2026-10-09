@@ -1,0 +1,628 @@
+/**
+ * aux.css — 闹钟 / 秒表 / 计时器三个 Tab 的内部样式（W4）
+ * 契约 §7.3：仅 styling #alarms-root / #stopwatch-root / #timer-root 的内部元素；
+ * 不碰 body / .window / .titlebar / tab 等 W3 分区样式。
+ *
+ * 视觉语言与 style.css 对齐：深色 Apple 风（#1c1c1e 卡片、白字、橙色强调 #ff9f0a、
+ * 圆角、开关），但所有选择器均以三个 root id 打头，互不干扰。
+ */
+
+/* ---------------- 设计令牌（仅作用于三个 root 的子树） ---------------- */
+#alarms-root,
+#stopwatch-root,
+#timer-root {
+  --aux-card: #1c1c1e;
+  --aux-elevated: #2c2c2e;
+  --aux-elevated-hi: #3a3a3c;
+  --aux-text: #f5f5f7;
+  --aux-text-2: rgba(235, 235, 245, 0.6);
+  --aux-text-3: rgba(235, 235, 245, 0.45);
+  --aux-line: rgba(84, 84, 88, 0.5);
+  --aux-accent: #ff9f0a;
+  --aux-danger: #ff453a;
+  --aux-radius: 12px;
+  color-scheme: dark;
+}
+
+/* hidden 属性在 flex/grid 容器上仍需生效 */
+#alarms-root [hidden],
+#stopwatch-root [hidden],
+#timer-root [hidden] {
+  display: none !important;
+}
+
+/* 三个面板的基础排版（ Apple 系统字体栈，仅子树内） */
+#alarms-root .aux-alarms,
+#stopwatch-root .aux-stopwatch,
+#timer-root .aux-timer {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Helvetica Neue", "Segoe UI", sans-serif;
+  color: var(--aux-text);
+}
+
+/* ---------------- 通用控件（三个 root 内） ---------------- */
+#alarms-root input,
+#alarms-root button,
+#stopwatch-root button,
+#timer-root input,
+#timer-root button {
+  font-family: inherit;
+}
+
+#alarms-root input[type="time"],
+#alarms-root input[type="text"],
+#timer-root input[type="number"] {
+  background: var(--aux-elevated);
+  border: 1px solid var(--aux-line);
+  color: var(--aux-text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  outline: none;
+}
+
+#alarms-root input:focus,
+#timer-root input:focus {
+  border-color: var(--aux-accent);
+}
+
+#alarms-root input:disabled,
+#timer-root input:disabled {
+  opacity: 0.45;
+}
+
+#alarms-root .aux-form-error,
+#timer-root .aux-form-error {
+  color: var(--aux-danger);
+  font-size: 12px;
+  margin: 0;
+}
+
+/* ================= 闹钟 Tab ================= */
+
+#alarms-root .aux-alarms {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 24px;
+}
+
+#alarms-root .aux-alarms-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 30px;
+}
+
+#alarms-root .aux-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--aux-text);
+}
+
+#alarms-root .aux-stop-all {
+  background: var(--aux-danger);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 降级提示条（服务端不可用） */
+#alarms-root .aux-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 159, 10, 0.12);
+  border: 1px solid rgba(255, 159, 10, 0.35);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ffd60a;
+}
+
+#alarms-root .aux-notice-retry {
+  margin-left: auto;
+  flex: none;
+  background: rgba(255, 159, 10, 0.25);
+  color: #ffd60a;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* 闹钟列表 */
+#alarms-root .aux-alarm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#alarms-root .aux-alarm-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--aux-card);
+  border-radius: var(--aux-radius);
+  padding: 12px 14px;
+  transition: background 0.2s;
+}
+
+#alarms-root .aux-alarm-item.disabled {
+  opacity: 0.55;
+}
+
+#alarms-root .aux-alarm-item.ringing {
+  background: rgba(255, 159, 10, 0.16);
+  animation: aux-pulse 1s ease-in-out infinite;
+}
+
+@keyframes aux-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px var(--aux-accent); }
+  50% { box-shadow: inset 0 0 0 2px var(--aux-accent), 0 0 18px rgba(255, 159, 10, 0.35); }
+}
+
+#alarms-root .aux-alarm-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#alarms-root .aux-alarm-time {
+  font-size: 28px;
+  font-weight: 300;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--aux-text);
+}
+
+#alarms-root .aux-alarm-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--aux-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#alarms-root .aux-alarm-label {
+  color: var(--aux-accent);
+}
+
+#alarms-root .aux-alarm-ops {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+#alarms-root .aux-alarm-stop {
+  background: var(--aux-accent);
+  color: #1c1c1e;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#alarms-root .aux-alarm-del {
+  background: transparent;
+  border: none;
+  color: var(--aux-text-3);
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#alarms-root .aux-alarm-del:hover {
+  color: var(--aux-danger);
+  background: rgba(255, 69, 58, 0.12);
+}
+
+#alarms-root .aux-empty {
+  text-align: center;
+  color: var(--aux-text-3);
+  font-size: 13px;
+  padding: 18px 0;
+  margin: 0;
+}
+
+/* iOS 风格开关 */
+#alarms-root .aux-switch {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex: none;
+  line-height: 0;
+}
+
+#alarms-root .aux-switch-track {
+  display: block;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: rgba(84, 84, 88, 0.6);
+  position: relative;
+  transition: background 0.2s;
+}
+
+#alarms-root .aux-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: left 0.2s;
+}
+
+#alarms-root .aux-switch[aria-checked="true"] .aux-switch-track {
+  background: var(--aux-accent);
+}
+
+#alarms-root .aux-switch[aria-checked="true"] .aux-switch-knob {
+  left: 20px;
+}
+
+/* 添加表单 */
+#alarms-root .aux-alarm-form {
+  background: var(--aux-card);
+  border-radius: var(--aux-radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#alarms-root .aux-alarm-form-row {
+  display: flex;
+  gap: 10px;
+}
+
+#alarms-root .aux-time-input {
+  flex: none;
+  width: 110px;
+}
+
+#alarms-root .aux-label-input {
+  flex: 1;
+  min-width: 0;
+}
+
+#alarms-root .aux-alarm-form-days {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#alarms-root .aux-alarm-days-label {
+  font-size: 12px;
+  color: var(--aux-text-2);
+  margin-right: 2px;
+}
+
+#alarms-root .aux-day-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--aux-line);
+  background: transparent;
+  color: var(--aux-text-2);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+#alarms-root .aux-day-chip:hover {
+  border-color: var(--aux-accent);
+  color: var(--aux-text);
+}
+
+#alarms-root .aux-day-chip.selected {
+  background: var(--aux-accent);
+  border-color: var(--aux-accent);
+  color: #1c1c1e;
+  font-weight: 700;
+}
+
+#alarms-root .aux-alarm-days-hint {
+  font-size: 11px;
+  color: var(--aux-text-3);
+  margin-left: 4px;
+}
+
+#alarms-root .aux-save-btn {
+  background: var(--aux-accent);
+  color: #1c1c1e;
+  border: none;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#alarms-root .aux-save-btn:hover {
+  filter: brightness(1.08);
+}
+
+#alarms-root .aux-save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ================= 秒表 Tab ================= */
+
+#stopwatch-root .aux-stopwatch {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 2px 24px;
+}
+
+#stopwatch-root .aux-sw-display {
+  text-align: center;
+  padding: 28px 0 8px;
+}
+
+#stopwatch-root .aux-sw-time {
+  font-size: 64px;
+  font-weight: 200;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+  color: var(--aux-text);
+}
+
+#stopwatch-root .aux-sw-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+#stopwatch-root .aux-sw-btn {
+  min-width: 84px;
+  padding: 10px 0;
+  border-radius: 10px;
+  border: none;
+  background: var(--aux-elevated);
+  color: var(--aux-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#stopwatch-root .aux-sw-btn:hover:not(:disabled) {
+  background: var(--aux-elevated-hi);
+}
+
+#stopwatch-root .aux-sw-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#stopwatch-root .aux-sw-btn.primary {
+  background: var(--aux-accent);
+  color: #1c1c1e;
+  font-weight: 700;
+}
+
+#stopwatch-root .aux-sw-laps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#stopwatch-root .aux-sw-lap {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--aux-card);
+  border-radius: 10px;
+  margin-bottom: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+#stopwatch-root .aux-sw-lap.current {
+  background: var(--aux-elevated);
+}
+
+#stopwatch-root .aux-sw-lap-no {
+  color: var(--aux-text-2);
+  font-size: 12px;
+}
+
+#stopwatch-root .aux-sw-lap-split {
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--aux-text);
+}
+
+#stopwatch-root .aux-sw-lap-cum {
+  font-size: 12px;
+  color: var(--aux-text-2);
+}
+
+#stopwatch-root .aux-sw-lap-empty {
+  text-align: center;
+  color: var(--aux-text-3);
+  font-size: 13px;
+  margin: 0;
+  padding: 8px 0;
+}
+
+/* ================= 计时器 Tab ================= */
+
+#timer-root .aux-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 2px 24px;
+}
+
+#timer-root .aux-tm-ring-wrap {
+  position: relative;
+  width: 220px;
+  height: 220px;
+}
+
+#timer-root .aux-tm-ring {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg); /* 进度从顶端开始 */
+}
+
+#timer-root .aux-tm-ring-bg {
+  fill: none;
+  stroke: rgba(84, 84, 88, 0.35);
+  stroke-width: 8;
+}
+
+#timer-root .aux-tm-ring-fg {
+  fill: none;
+  stroke: var(--aux-accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.1s linear;
+}
+
+#timer-root .aux-tm-time {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: var(--aux-text);
+}
+
+#timer-root .aux-tm-state {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 46px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--aux-text-2);
+}
+
+#timer-root .aux-tm-inputs {
+  display: flex;
+  gap: 10px;
+}
+
+#timer-root .aux-tm-field {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+#timer-root .aux-tm-num {
+  width: 64px;
+  text-align: center;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+#timer-root .aux-tm-unit {
+  font-size: 12px;
+  color: var(--aux-text-2);
+}
+
+#timer-root .aux-tm-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+#timer-root .aux-preset-chip {
+  background: var(--aux-elevated);
+  color: var(--aux-text);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#timer-root .aux-preset-chip:hover:not(:disabled) {
+  background: var(--aux-elevated-hi);
+}
+
+#timer-root .aux-preset-chip:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+#timer-root .aux-tm-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+#timer-root .aux-tm-btn {
+  min-width: 96px;
+  padding: 10px 0;
+  border-radius: 10px;
+  border: none;
+  background: var(--aux-elevated);
+  color: var(--aux-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#timer-root .aux-tm-btn:hover:not(:disabled) {
+  background: var(--aux-elevated-hi);
+}
+
+#timer-root .aux-tm-btn.primary {
+  background: var(--aux-accent);
+  color: #1c1c1e;
+  font-weight: 700;
+}
+
+#timer-root .aux-tm-btn.danger {
+  background: var(--aux-danger);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* 结束闪烁 */
+#timer-root.finished .aux-tm-ring-fg {
+  stroke: var(--aux-danger);
+}
+
+#timer-root.finished .aux-tm-time {
+  color: var(--aux-danger);
+  animation: aux-blink 0.6s steps(2, start) infinite;
+}
+
+@keyframes aux-blink {
+  50% { opacity: 0.25; }
+}
