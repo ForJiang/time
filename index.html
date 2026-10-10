@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>无世界时钟</title>
 <link rel="stylesheet" href="static/css/style.css">
+<link rel="manifest" href="manifest.json">
 </head><body>
 <canvas id="map-canvas"></canvas>
 <div class="scrim" aria-hidden="true"></div>
@@ -17,4 +18,5 @@
 <script src="static/js/api.js"></script>
 <script src="static/js/map.js"></script>
 <script src="static/js/app.js"></script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){})}</script>
 </body></html>
