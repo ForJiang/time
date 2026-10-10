@@ -412,11 +412,14 @@
   // 太阳高度角 / 日落时角（对应 solar_elevation / hour_angle_sunset）
   // ---------------------------------------------------------------------------
 
-  /* 对应 solar_elevation(dt_utc, lat_deg, lon_deg)：几何高度角（不含蒙气差）。 */
-  function _solarElevationFromT(t, latDeg, lonDeg) {
+  /* 对应 solar_elevation(dt_utc, lat_deg, lon_deg)：几何高度角（不含蒙气差）。
+   * 入参校验顺序与 Python 逐字一致（纬度 → 经度 → 时刻转换）：三者同时非法时
+   * 抛出的异常类型才与 Python 侧相同（文件头 5 的 TypeError↔RangeError 映射
+   * 口径）。故本函数收原始 date，_dateToT 放在两个 _check 之后。 */
+  function _solarElevationFromT(date, latDeg, lonDeg) {
     var lat = _checkLat(latDeg);
     var lon = _normLon(lonDeg);
-    var pos = _solarPositionFromT(t);
+    var pos = _solarPositionFromT(_dateToT(date));
     // 当地时角 = 东经 − 直射点经度（与 GMST/α 严格自洽）
     var hourAngle = lon - pos.subsolarLonDeg;
     var sinH = _sinDeg(lat) * _sinDeg(pos.declinationDeg)
@@ -508,10 +511,19 @@
    * 候选 φ1 = wrap(asin(sin d/R) − θ)、φ2 = wrap(180 − asin(sin d/R) − θ)；
    * 每个候选只 wrap 一次（禁止 ±180 归一切换——会翻转等式符号）。
    * |sin d| > R → null（该列最低高度 −asin(R) > −twilight，整列昼/蒙影）；
+   * R === 0 → lat0（退化列：整列几何高度恒为 0，方程退化为 0 = 0，全列都在
+   * −twilight 等值线上，twilight=0 时即 curve0）；
    * 0 个候选落区间 → null；≥1 个 → 取夜半球侧且最靠近 lat0 的。 */
   function _columnLat6(thetaDeg, rValue, sinD, lat0, nightNorth) {
     if (Math.abs(sinD) > rValue) {
       return null;  // 整列昼/蒙影，无真夜
+    }
+    if (rValue === 0.0) {
+      // 数学上要求赤纬恰为 0.0 且 H 恰为 ±90°（测度零，公开 API 不可达），
+      // 但必须显式防护：旧代码 JS 侧在此返回 null 而 Python 侧对
+      // sinD / rValue 除零抛 ZeroDivisionError——两侧行为分叉。退化列全列
+      // 高度为 0，与 lat0 同值（twilight=0 时 curve6 即 curve0）。
+      return lat0;
     }
     var ratio = Math.max(-1.0, Math.min(1.0, sinD / rValue));
     var alpha = _rad2deg(Math.asin(ratio));
@@ -539,9 +551,12 @@
 
   /* 对应 terminator_curves(dt_utc, lon_step_deg=1.0, twilight_deg=6.0)：
    * 按经度列逐列求解 curve0（elev=0°）与 curve6（elev=−twilight°）。
+   * 入参校验顺序与 Python 逐字一致（step → twilight → 时刻转换）：三者同时
+   * 非法时抛出的异常类型才与 Python 侧相同。故本函数收原始 date，_dateToT
+   * 放在 step/twilight 校验之后。
    * 返回 {subsolarLatDeg, subsolarLonDeg, declinationDeg, nightNorth,
    *       lonStepDeg, curve0: [[lon,lat0]...], curve6: [[lon,lat6|null]...]}。 */
-  function _terminatorCurvesFromT(t, lonStepDeg, twilightDeg) {
+  function _terminatorCurvesFromT(date, lonStepDeg, twilightDeg) {
     var step = _toNum(lonStepDeg, 'lon_step_deg');
     var twilight = _toNum(twilightDeg, 'twilight_deg');
     if (!isFinite(step) || step <= 0.0) {
@@ -551,6 +566,7 @@
       throw new RangeError('twilight_deg 必须是非负实数，得到 ' + twilightDeg);
     }
 
+    var t = _dateToT(date);
     var pos = _solarPositionFromT(t);
     var decl = pos.declinationDeg;
     var subLon = pos.subsolarLonDeg;
@@ -684,7 +700,7 @@
 
     /* solar_elevation(dt, lat, lon)：几何高度角（度，不含蒙气差）。 */
     solarElevation: function (date, latDeg, lonDeg) {
-      return _solarElevationFromT(_dateToT(date), latDeg, lonDeg);
+      return _solarElevationFromT(date, latDeg, lonDeg);
     },
 
     /* terminator_curves(dt, lon_step_deg=1.0, twilight_deg=6.0)：
@@ -694,7 +710,7 @@
     terminatorCurves: function (date, lonStepDeg, twilightDeg) {
       var step = (lonStepDeg === undefined) ? 1.0 : lonStepDeg;
       var twi = (twilightDeg === undefined) ? 6.0 : twilightDeg;
-      return _terminatorCurvesFromT(_dateToT(date), step, twi);
+      return _terminatorCurvesFromT(date, step, twi);
     },
 
     /* hour_angle_sunset(lat, decl, depression=0.833)：

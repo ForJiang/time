@@ -155,7 +155,10 @@
   // 定位回退链（镜像 app/geo.py resolve_location）
   // ---------------------------------------------------------------------------
 
-  /* geojs IP 定位：{lat, lon, city, tz} | null；3s 超时，10 分钟缓存（含否定） */
+  /* geojs IP 定位：{lat, lon, city, tz} | null；3s 超时，10 分钟缓存（含否定）。
+   * 比 geo.py 的 _fetch 多两道校验（lat/lon 越界、非数字直接判不可用落入下一级）：
+   * geojs 是第三方免费服务，静态版没有服务端那道 _as_float 之前的人工审查，
+   * 从严处理属安全偏离（geo.py 只拒非有限值）。 */
   function ipLocation() {
     var nowMs = Date.now();
     if (ipCache.has && nowMs - ipCache.at < CACHE_MS) {
@@ -236,11 +239,17 @@
   // StateDict 组装（镜像 server.py _build_state，契约 §5）
   // ---------------------------------------------------------------------------
 
+  /* 曲线量化：lon/lat 都舍入到 2 位小数（与 server.py _build_state 的
+   * [[_round2(lon_i), _round2(lat_i)]] 逐字对齐——原来只舍 lat）。
+   * 生产 LON_STEP=1.0 下 lon 为整数，round2 是恒等变换（零行为变化）；
+   * 非整数步长时两侧 lon 双精度值本就逐位相同（solar-engine.js 与 solar.py
+   * 都是 -180 + i*step 同序运算），补上 lon 舍入后连"round 半偶 vs
+   * Math.round 半上"的平局分歧也不存在，镜像不留缺口。curve6 的 None 原样保留。 */
   function quantizeCurve(points) {
     var out = [];
     for (var i = 0; i < points.length; i++) {
       var p = points[i];
-      out.push([p[0], p[1] === null || p[1] === undefined ? null : round2(p[1])]);
+      out.push([round2(p[0]), p[1] === null || p[1] === undefined ? null : round2(p[1])]);
     }
     return out;
   }
