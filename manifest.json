@@ -1,6 +1,6 @@
 {
-  "name": "无世界时钟",
-  "short_name": "无世界时钟",
+  "name": "Worldless Clock",
+  "short_name": "Worldless Clock",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

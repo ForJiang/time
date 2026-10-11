@@ -14,12 +14,6 @@
 (function () {
   'use strict';
 
-  var SOURCE_LABELS = {
-    browser: '浏览器定位',
-    ip: 'IP 定位',
-    timezone: '时区定位',
-    default: '默认定位'
-  };
   var GEO_TIMEOUT_MS = 8000;
   var POLL_MS = 1000;
   var READY_FALLBACK_MS = 12000;      // 数据迟迟不到也放行（避免 E2E/白屏卡死）
@@ -62,11 +56,11 @@
     var sr = loc.sunrise, ss = loc.sunset, dl = loc.day_length;
     var dlText = (typeof dl === 'string' && dl) ? dl : '--:--';
     if ((sr === null || sr === undefined) && (ss === null || ss === undefined)) {
-      if (dlText === '24:00') return '极昼 · 昼长 24:00';
-      if (dlText === '00:00') return '极夜 · 昼长 00:00';
-      return '日出 --:-- · 日落 --:-- · 昼长 ' + dlText;
+      if (dlText === '24:00') return 'Midnight sun · 24:00 day';
+      if (dlText === '00:00') return 'Polar night · 00:00 day';
+      return 'Sunrise --:-- · Sunset --:-- · Day length ' + dlText;
     }
-    return '日出 ' + hm(sr) + ' · 日落 ' + hm(ss) + ' · 昼长 ' + dlText;
+    return 'Sunrise ' + hm(sr) + ' · Sunset ' + hm(ss) + ' · Day length ' + dlText;
   }
 
   function renderLines() {
@@ -77,10 +71,10 @@
       sunEl.textContent = '';
       return;
     }
+    // 定位来源标注已按用户要求移除；无城市名（browser/ip 源）时回退显示坐标
     var name = (typeof loc.name === 'string' && loc.name) ? loc.name : fmtCoord(loc.lat, loc.lon);
-    var src = SOURCE_LABELS[loc.source] || '默认定位';
     var tz = (typeof loc.tz === 'string' && loc.tz) ? loc.tz : browserTz();
-    locEl.textContent = name + ' · ' + tz + ' · ' + src;
+    locEl.textContent = name + ' · ' + tz;
     sunEl.textContent = sunText(loc);
   }
 

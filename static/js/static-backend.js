@@ -26,11 +26,11 @@
   var GEOJS_URL = 'https://get.geojs.io/v1/ip/geo.json';
   var IP_TIMEOUT_MS = 3000;
   var CACHE_MS = 600000;
-  var DEFAULT_LOC = { lat: 39.9042, lon: 116.4074, name: '北京', tz: 'Asia/Shanghai' };
+  var DEFAULT_LOC = { lat: 39.9042, lon: 116.4074, name: 'Beijing', tz: 'Asia/Shanghai' };
   /* FALLBACK_TZ：tz_hint 缺失/非法时的回退时区（与 app/geo.py 的 FALLBACK_TZ='UTC' 一致；
    * 注意默认定位用 DEFAULT_TZ='Asia/Shanghai'，两者不同） */
   var FALLBACK_TZ = 'UTC';
-  var WEEKDAYS_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  var WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   var LON_STEP = 1.0;
   var TWILIGHT_DEG = 6.0;
 
@@ -128,12 +128,12 @@
     return pad2(w.hour) + ':' + pad2(w.minute);
   }
 
-  /* date_label："2026-10-10 周六" */
+  /* date_label："2026-10-10 Sat"（与 server.py _date_label 一致，界面全英文） */
   function dateLabel(date, tz) {
     var w = wallFields(date, tz);
     if (!w) return '';
     var weekday = new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay();
-    return w.year + '-' + pad2(w.month) + '-' + pad2(w.day) + ' ' + WEEKDAYS_CN[weekday];
+    return w.year + '-' + pad2(w.month) + '-' + pad2(w.day) + ' ' + WEEKDAYS_EN[weekday];
   }
 
   /* utc_offset_hours：当地墙上时间 − UTC 墙上时间（tzdb 偏移均为整秒，精确；
@@ -217,8 +217,10 @@
     }
     return ipLocation().then(function (ip) {
       if (ip) {
+        // geojs 的 city 字段按 IP 归属地返回未本地化名称（中文区返回中文），
+        // 界面全英文故不采用——留空由前端回退显示坐标（与 geo.py 一致）
         return {
-          lat: ip.lat, lon: ip.lon, name: ip.city || '',
+          lat: ip.lat, lon: ip.lon, name: '',
           tz: validTz(ip.tz) || tz || FALLBACK_TZ, source: 'ip'
         };
       }
