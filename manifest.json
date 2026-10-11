@@ -1,6 +1,6 @@
 {
-  "name": "Worldless Clock",
-  "short_name": "Worldless Clock",
+  "name": "time",
+  "short_name": "time",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
