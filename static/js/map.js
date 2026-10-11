@@ -9,7 +9,7 @@
  * 颜色：海 #000；陆 #2e2e2e；经线每 30° #161616；夜 rgba(0,0,0,0.55)；
  *       蒙影带为 0.03→0.55 的逐像素 alpha 线性渐变（run-012 消色阶断层）；
  *       晨昏线 #ffffff 1.5px + 柔光；
- *       定位标记 = 脉冲扩散环 + 中心单点（run-011：双静态环已删，脉冲环按用户要求保留）。
+ *       定位标记 = 橙色脉冲扩散环 + 橙色中心点（run-013 起由白改橙，用户要求）。
  * 昼夜判定（§5 night_north）：每列三段——昼（lat0 向日侧，无叠加）/
  *       蒙影（lat0→lat6；curve6 为 null 时延至列末端）/ 夜（lat6→列末端；null 时该列无夜区）。
  *
@@ -24,6 +24,8 @@
   var LAND_FILL = '#2e2e2e';
   var GRID_COLOR = '#161616';
   var LINE_COLOR = '#ffffff';
+  var MARKER_COLOR = '#ff9f43';   // 定位标记色（暖橙，run-013 用户要求；原白环+白点改橙）
+  var MARKER_GLOW = 'rgba(255, 159, 67, 0.9)';
   var NIGHT_ALPHA = 0.55;      // 夜半球叠加不透明度（太阳高度 ≤ −6°）
   var TWI_ALPHA0 = 0.03;       // 蒙影带贴近晨昏线一端（高度 0°）的起始不透明度
   var TWI_DEG = 6.0;           // 民用蒙影对应的太阳高度阈值（度）
@@ -247,7 +249,7 @@
     g.stroke();
   }
 
-  /* ---------- 定位标记：脉冲扩散环 + 中心单点（run-010/011：双环已删，脉冲环恢复） ---------- */
+  /* ---------- 定位标记：橙色脉冲扩散环 + 橙色中心点（run-013 起由白改橙） ---------- */
   function markerPos(st) {
     var loc = st && st.location;
     if (!loc || typeof loc.lat !== 'number' || typeof loc.lon !== 'number') return null;
@@ -265,18 +267,18 @@
       var r = MARKER_R + phase * (PULSE_R_MAX - MARKER_R);
       g.save();
       g.globalAlpha = 0.55 * (1 - phase);
-      g.strokeStyle = LINE_COLOR;
+      g.strokeStyle = MARKER_COLOR;
       g.lineWidth = 1.2;
       g.beginPath();
       g.arc(m.x, m.y, r, 0, Math.PI * 2);
       g.stroke();
       g.restore();
     }
-    /* 中心单点 + 一层柔光兜住可见度 */
+    /* 中心点 + 同色柔光兜住可见度 */
     g.save();
-    g.shadowColor = 'rgba(255, 255, 255, 0.9)';
+    g.shadowColor = MARKER_GLOW;
     g.shadowBlur = 6;
-    g.fillStyle = LINE_COLOR;
+    g.fillStyle = MARKER_COLOR;
     g.beginPath();
     g.arc(m.x, m.y, MARKER_R, 0, Math.PI * 2);
     g.fill();
