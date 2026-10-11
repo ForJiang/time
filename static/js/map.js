@@ -1,19 +1,19 @@
 /* map.js — 全屏等距圆柱世界地图 + 晨昏线渲染（window.MapView，契约 §6.2/§6.3）
  *
- * init(canvas)     绑定画布、按 DPR 适配、构建离屏底图、注册 resize
+ * init(canvas)     绑定画布、按 DPR 适配、构建离屏底图、注册 resize、启动定位标记脉冲
  * setLand(geojson) 注入陆地数据（world_land.json 内容）并重建底图
- * render(state)    每秒调用：底图 + 夜/蒙影三段叠加 + 白色晨昏线 + 定位单点（同步上屏）
+ * render(state)    每秒调用：底图 + 夜/蒙影三段叠加 + 白色晨昏线 + 定位标记（同步上屏）
  * resize()         尺寸/DPR 变化时重建离屏画布并重绘
  *
  * 投影（§6.3 cover）：scale = max(W/360, H/180)，x = W/2 + lon·scale，y = H/2 − lat·scale。
  * 颜色：海 #000；陆 #2e2e2e；经线每 30° #161616；夜 rgba(0,0,0,0.55)；
  *       蒙影两级 rgba(0,0,0,0.22)→rgba(0,0,0,0.40)；晨昏线 #ffffff 1.5px + 柔光；
- *       定位标记为单点（run-010 起由"双环+脉冲"简化，白点 + 柔光）。
+ *       定位标记 = 脉冲扩散环 + 中心单点（run-011：双静态环已删，脉冲环按用户要求保留）。
  * 昼夜判定（§5 night_north）：每列三段——昼（lat0 向日侧，无叠加）/
  *       蒙影（lat0→lat6；curve6 为 null 时延至列末端）/ 夜（lat6→列末端；null 时该列无夜区）。
  *
  * 性能：底图（黑+网格+陆地）与场景（底图+夜+晨昏线）各一张离屏画布；
- *       render 只重建场景离屏，可见画布每次只做一次 drawImage + 单点（无逐帧动画）。
+ *       1Hz render 只重建场景离屏；脉冲环由 rAF 逐帧驱动（reduced-motion 时停）。
  *
  * 语法约束：ES2017 子集（esprima 4 解析；无外部请求、无 eval）。
  */
@@ -24,7 +24,9 @@
   var GRID_COLOR = '#161616';
   var NIGHT_LEVELS = ['rgba(0, 0, 0, 0.22)', 'rgba(0, 0, 0, 0.40)', 'rgba(0, 0, 0, 0.55)'];
   var LINE_COLOR = '#ffffff';
-  var MARKER_R = 3;             // 定位标记单点半径（CSS px）
+  var MARKER_R = 3;             // 定位标记中心点半径（CSS px）
+  var PULSE_MS = 2400;          // 脉冲环周期：从 MARKER_R 扩到 PULSE_R_MAX 后淡出重来
+  var PULSE_R_MAX = 15;         // 脉冲环最大半径（CSS px）
 
   var canvas = null;
   var ctx = null;
@@ -34,6 +36,8 @@
   var baseCtx = null, sceneCtx = null;
   var landPolygons = null;
   var lastState = null;
+  var rafId = 0;
+  var pulseEnabled = true;      // prefers-reduced-motion: reduce 时为 false（禁脉冲）
   var listenersBound = false;   // init 重复调用时不重复注册监听（防泄漏）
 
   /* ---------- 投影（§6.3 cover） ---------- */
@@ -204,7 +208,7 @@
     g.stroke();
   }
 
-  /* ---------- 定位标记：单点（白点 + 柔光，run-010 起由双环+脉冲简化） ---------- */
+  /* ---------- 定位标记：脉冲扩散环 + 中心单点（run-010/011：双环已删，脉冲环恢复） ---------- */
   function markerPos(st) {
     var loc = st && st.location;
     if (!loc || typeof loc.lat !== 'number' || typeof loc.lon !== 'number') return null;
@@ -212,11 +216,24 @@
     return { x: xOf(loc.lon), y: yOf(loc.lat) };
   }
 
-  function drawMarker(g) {
+  function drawMarker(g, t) {
     var m = markerPos(lastState);
     if (!m) return;
     if (m.x < -24 || m.x > W + 24 || m.y < -24 || m.y > H + 24) return;
-    /* 单点 + 一层柔光兜住可见度（不加环——用户要求只保留中间一个点） */
+    /* 脉冲环：从点半径扩到 PULSE_R_MAX，透明度同步淡出 */
+    if (pulseEnabled && typeof t === 'number') {
+      var phase = (t % PULSE_MS) / PULSE_MS;
+      var r = MARKER_R + phase * (PULSE_R_MAX - MARKER_R);
+      g.save();
+      g.globalAlpha = 0.55 * (1 - phase);
+      g.strokeStyle = LINE_COLOR;
+      g.lineWidth = 1.2;
+      g.beginPath();
+      g.arc(m.x, m.y, r, 0, Math.PI * 2);
+      g.stroke();
+      g.restore();
+    }
+    /* 中心单点 + 一层柔光兜住可见度 */
     g.save();
     g.shadowColor = 'rgba(255, 255, 255, 0.9)';
     g.shadowBlur = 6;
@@ -239,11 +256,32 @@
     }
   }
 
-  function blit() {
+  function blit(t) {
     if (!ctx) return;
     /* scene 整幅不透明，无需 clearRect（每帧热路径，省一次全画布清除） */
     if (scene) ctx.drawImage(scene, 0, 0, W, H);
-    drawMarker(ctx);
+    drawMarker(ctx, t);
+  }
+
+  /* 脉冲循环：有状态且页面可见时逐帧 blit（脉冲环动画的唯一驱动） */
+  function frame(t) {
+    rafId = window.requestAnimationFrame(frame);
+    if (!canvas || !ctx || document.hidden) return;
+    if (!lastState) return;                 // 无状态时静止（底图已在 render/init 时上屏）
+    blit(t);
+  }
+
+  /* 脉冲循环按需启停：prefers-reduced-motion 关闭时不能继续空转 60fps 全画布 blit，
+   * 重新开启时也要能拉起循环（否则改回去后脉冲再也不动）。 */
+  function startLoop() {
+    if (!rafId) rafId = window.requestAnimationFrame(frame);
+  }
+
+  function stopLoop() {
+    if (rafId) {
+      window.cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
   }
 
   /* ---------- 对外接口 ---------- */
@@ -252,7 +290,7 @@
     if (!canvas || !ctx) return;
     if (!ensureSize()) return;
     buildScene();
-    blit();
+    blit(pulseEnabled ? (window.performance && performance.now ? performance.now() : 0) : null);
   }
 
   function setLand(geojson) {
@@ -261,7 +299,7 @@
     if (baseCtx) {
       buildBase();
       if (lastState) render(lastState);
-      else { buildScene(); blit(); }
+      else { buildScene(); blit(null); }
     }
   }
 
@@ -269,6 +307,17 @@
     if (!canvas || !ctx) return;
     ensureSize();
     render(lastState);
+  }
+
+  /* 当前是否允许脉冲（prefers-reduced-motion: reduce 时禁止）；读失败按允许处理 */
+  function motionAllowed() {
+    if (!window.matchMedia) return true;
+    try {
+      var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      return !(mq && mq.matches);
+    } catch (e) {
+      return true;
+    }
   }
 
   function init(canvasEl) {
@@ -279,10 +328,24 @@
       listenersBound = true;
       window.addEventListener('resize', function () { resize(); });
       window.addEventListener('orientationchange', function () { resize(); });
+      if (window.matchMedia) {
+        try {
+          var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+          if (mq && mq.addEventListener) {
+            mq.addEventListener('change', function (e) {
+              pulseEnabled = !e.matches;
+              if (pulseEnabled) startLoop(); else stopLoop();
+              render(lastState);
+            });
+          }
+        } catch (e) { /* 老浏览器无 matchMedia：保持默认允许脉冲 */ }
+      }
     }
+    pulseEnabled = motionAllowed();
     ensureSize();
     buildScene();
-    blit();
+    blit(null);
+    if (pulseEnabled) startLoop();
     return window.MapView;
   }
 
