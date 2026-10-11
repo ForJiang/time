@@ -14,7 +14,8 @@
 (function () {
   'use strict';
 
-  var GEO_TIMEOUT_MS = 8000;
+  var GEO_TIMEOUT_MS = 15000;          // 高精度定位超时（GPS/WiFi 精定位冷启动可能较慢）
+  var GEO_FALLBACK_TIMEOUT_MS = 6000;  // 降精度重试超时（高精度失败时的兜底）
   var POLL_MS = 1000;
   var READY_FALLBACK_MS = 12000;      // 数据迟迟不到也放行（避免 E2E/白屏卡死）
 
@@ -41,10 +42,13 @@
   }
 
   /* ---------- 信息行 ---------- */
-  function fmtCoord(lat, lon) {
+  /* 坐标显示：浏览器定位（GPS/WiFi 级）显示 4 位小数（~11m），
+   * IP 等粗来源保持 2 位（~1km）不虚标精度。 */
+  function fmtCoord(lat, lon, digits) {
     if (typeof lat !== 'number' || typeof lon !== 'number' || !isFinite(lat) || !isFinite(lon)) return '--';
-    var la = Math.abs(lat).toFixed(2) + '°' + (lat >= 0 ? 'N' : 'S');
-    var lo = Math.abs(lon).toFixed(2) + '°' + (lon >= 0 ? 'E' : 'W');
+    var d = (typeof digits === 'number') ? digits : 2;
+    var la = Math.abs(lat).toFixed(d) + '°' + (lat >= 0 ? 'N' : 'S');
+    var lo = Math.abs(lon).toFixed(d) + '°' + (lon >= 0 ? 'E' : 'W');
     return la + ' ' + lo;
   }
 
@@ -72,7 +76,7 @@
       return;
     }
     // 定位来源标注已按用户要求移除；无城市名（browser/ip 源）时回退显示坐标
-    var name = (typeof loc.name === 'string' && loc.name) ? loc.name : fmtCoord(loc.lat, loc.lon);
+    var name = (typeof loc.name === 'string' && loc.name) ? loc.name : fmtCoord(loc.lat, loc.lon, loc.source === 'browser' ? 4 : 2);
     var tz = (typeof loc.tz === 'string' && loc.tz) ? loc.tz : browserTz();
     locEl.textContent = name + ' · ' + tz;
     sunEl.textContent = sunText(loc);
@@ -175,18 +179,35 @@
     });
   }
 
+  /* 高精度定位 + 降精度重试（run-014，用户要求"定位更准确"）：
+   * ① 首选 enableHighAccuracy（GPS/WiFi 精定位，不用廉价 IP 粗定位）、
+   *    maximumAge=0（不接受过期缓存位置）；
+   * ② 若超时/不可用（非拒绝授权），降精度重试一次——粗定位仍优于服务端城市级；
+   * ③ 拒绝授权（code 1）不重试，直接沿用服务端回退。 */
   function requestGeo() {
     if (!navigator.geolocation) return;
+    var done = false;
+    var onSuccess = function (pos) {
+      var c = pos && pos.coords;
+      if (!c || typeof c.latitude !== 'number' || typeof c.longitude !== 'number') return;
+      done = true;
+      /* 定位成功：带 lat/lon/tz 立即重拉 state（不等下一轮轮询，REQ-4.3）；
+       * 参数记入 lastParams，后续 1Hz 轮询沿用，定位不回退 */
+      refresh({ lat: c.latitude, lon: c.longitude, tz: browserTz() });
+    };
+    var onError = function (err) {
+      if (done) return;
+      if (err && err.code === 1) return;   // PERMISSION_DENIED：不重试
+      try {
+        navigator.geolocation.getCurrentPosition(onSuccess, function () {}, {
+          timeout: GEO_FALLBACK_TIMEOUT_MS, maximumAge: 120000, enableHighAccuracy: false
+        });
+      } catch (e) { /* 忽略：沿用服务端回退 */ }
+    };
     try {
-      navigator.geolocation.getCurrentPosition(function (pos) {
-        var c = pos && pos.coords;
-        if (!c || typeof c.latitude !== 'number' || typeof c.longitude !== 'number') return;
-        /* 定位成功：带 lat/lon/tz 立即重拉 state（不等下一轮轮询，REQ-4.3）；
-         * 参数记入 lastParams，后续 1Hz 轮询沿用，定位不回退 */
-        refresh({ lat: c.latitude, lon: c.longitude, tz: browserTz() });
-      }, function () {
-        /* 失败/拒绝：沿用服务端回退结果 */
-      }, { timeout: GEO_TIMEOUT_MS, maximumAge: 60000, enableHighAccuracy: false });
+      navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+        timeout: GEO_TIMEOUT_MS, maximumAge: 0, enableHighAccuracy: true
+      });
     } catch (e) { /* 老浏览器无 geolocation：忽略 */ }
   }
 
