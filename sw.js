@@ -2,8 +2,8 @@
  * CACHE 名带产物内容哈希：换版自动换缓存名，activate 时删旧缓存。
  * 仅拦截同源 GET：导航 network-first（失败回退缓存，HTML 更新可见），
  * 静态资源 cache-first（离线可用）；跨域（geojs 定位）不拦截、不缓存。 */
-const CACHE = 'time-clock-54bd232c';
-const PRECACHE = [".nojekyll", "apple-touch-icon.png", "data/world_land.json", "icon-192.png", "icon-512.png", "icon.svg", "index.html", "manifest.json", "static/css/style.css", "static/js/api.js", "static/js/app.js", "static/js/map.js", "static/js/solar-engine.js", "static/js/static-backend.js", "static/js/tz-coords.js", "sw.js"];
+const CACHE = 'time-clock-00e7e848';
+const PRECACHE = [".nojekyll", "apple-touch-icon.png", "data/world_land.json", "icon-192.png", "icon-512.png", "icon.svg", "index.html", "manifest.json", "static/css/style.css", "static/icon.svg", "static/js/api.js", "static/js/app.js", "static/js/map.js", "static/js/solar-engine.js", "static/js/static-backend.js", "static/js/tz-coords.js", "sw.js"];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(PRECACHE); })
