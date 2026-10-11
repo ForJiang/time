@@ -7,7 +7,8 @@
  *
  * 投影（§6.3 cover）：scale = max(W/360, H/180)，x = W/2 + lon·scale，y = H/2 − lat·scale。
  * 颜色：海 #000；陆 #2e2e2e；经线每 30° #161616；夜 rgba(0,0,0,0.55)；
- *       蒙影两级 rgba(0,0,0,0.22)→rgba(0,0,0,0.40)；晨昏线 #ffffff 1.5px + 柔光；
+ *       蒙影带为 0.03→0.55 的逐像素 alpha 线性渐变（run-012 消色阶断层）；
+ *       晨昏线 #ffffff 1.5px + 柔光；
  *       定位标记 = 脉冲扩散环 + 中心单点（run-011：双静态环已删，脉冲环按用户要求保留）。
  * 昼夜判定（§5 night_north）：每列三段——昼（lat0 向日侧，无叠加）/
  *       蒙影（lat0→lat6；curve6 为 null 时延至列末端）/ 夜（lat6→列末端；null 时该列无夜区）。
@@ -22,8 +23,10 @@
 
   var LAND_FILL = '#2e2e2e';
   var GRID_COLOR = '#161616';
-  var NIGHT_LEVELS = ['rgba(0, 0, 0, 0.22)', 'rgba(0, 0, 0, 0.40)', 'rgba(0, 0, 0, 0.55)'];
   var LINE_COLOR = '#ffffff';
+  var NIGHT_ALPHA = 0.55;      // 夜半球叠加不透明度（太阳高度 ≤ −6°）
+  var TWI_ALPHA0 = 0.03;       // 蒙影带贴近晨昏线一端（高度 0°）的起始不透明度
+  var TWI_DEG = 6.0;           // 民用蒙影对应的太阳高度阈值（度）
   var MARKER_R = 3;             // 定位标记中心点半径（CSS px）
   var PULSE_MS = 2400;          // 脉冲环周期：从 MARKER_R 扩到 PULSE_R_MAX 后淡出重来
   var PULSE_R_MAX = 15;         // 脉冲环最大半径（CSS px）
@@ -122,7 +125,14 @@
     if (started) g.closePath();
   }
 
-  /* ---------- 夜 / 蒙影三段叠加 ---------- */
+  /* ---------- 夜 / 蒙影叠加 ----------
+   * 逐像素 alpha 渐变（run-012，用户报"背景色彩断层"）：
+   * 在 1/4 分辨率的离屏画布上按可见 lon/lat 网格逐像素计算黑色叠加 alpha
+   * （0 → 蒙影线性渐变 → 夜半球恒定），再双线性放大绘制——真渐变、
+   * 无色阶台阶、无列间阶梯。alpha 只来自 curve0/curve6 数据的插值，
+   * 不做任何天文计算（单一真相源仍在 Python）。 */
+  var overlay = null;           // 离屏：低分辨率昼夜叠加层（复用）
+
   function drawNight(g, st) {
     var term = st && st.terminator;
     if (!term || !term.curve0 || !term.curve0.length) return;
@@ -130,50 +140,79 @@
     var c6 = term.curve6 || [];
     var step = (typeof term.lon_step === 'number' && term.lon_step > 0) ? term.lon_step : 1;
     var nightUp = !!term.night_north;               // 夜半球在北（lat > lat0）
-    var colW = step * scale;
-    var endLat = nightUp ? 90 : -90;                // 列末端纬度
-    var bands = [[], [], []];                       // 0 蒙影浅 / 1 蒙影深 / 2 夜
+    var endLat = nightUp ? 90 : -90;                // 列末端纬度（夜侧）
 
-    for (var i = 0; i < c0.length; i++) {
-      var p0 = c0[i];
-      if (!p0 || typeof p0[1] !== 'number' || !isFinite(p0[1])) continue;
-      var lon = p0[0];
-      if (typeof lon !== 'number' || !isFinite(lon)) continue;
-      var lat0 = p0[1];
-      var x = xOf(lon);
-      var lat6 = null;
-      var p6 = c6[i];
-      if (p6 && typeof p6[1] === 'number' && isFinite(p6[1])) lat6 = p6[1];
+    /* 可见 lon/lat 窗口（cover 投影的逆映射） */
+    var lonMin = (0 - W / 2) / scale, lonMax = (W - W / 2) / scale;
+    var latMax = (H / 2 - 0) / scale, latMin = (H / 2 - H) / scale;
 
-      var segs;
-      if (lat6 === null) {
-        /* 该列无 −6° 交点：蒙影延至列末端，无夜区 */
-        var midN = lat0 + (endLat - lat0) / 2;
-        segs = [[lat0, midN, 0], [midN, endLat, 1]];
-      } else {
-        var mid = (lat0 + lat6) / 2;
-        segs = [[lat0, mid, 0], [mid, lat6, 1], [lat6, endLat, 2]];
-      }
-      for (var k = 0; k < segs.length; k++) {
-        var la = segs[k][0], lb = segs[k][1], lvl = segs[k][2];
-        var ya = yOf(la), yb = yOf(lb);
-        var top = ya < yb ? ya : yb;
-        var bot = ya < yb ? yb : ya;
-        if (bot - top < 0.01) continue;
-        bands[lvl].push([x, top, colW, bot - top]);
+    /* 离屏尺寸：约 1/4 设备分辨率（逐像素代价可忽略，放大后双线性更滑） */
+    var ow = Math.max(2, Math.round(W / 4)), oh = Math.max(2, Math.round(H / 4));
+    if (!overlay) overlay = document.createElement('canvas');
+    if (overlay.width !== ow || overlay.height !== oh) {
+      overlay.width = ow;
+      overlay.height = oh;
+    }
+    var octx = overlay.getContext('2d');
+    var img = octx.createImageData(ow, oh);
+    var data = img.data;
+
+    /* 无 −6° 交点的列（整列昼/蒙影）：末端 alpha 按 |sin δ| / sin 6° 折算——
+     * 此时整列最低高度即夜侧极点高度 = |sin δ|（用服务端给的 declination，非天文计算） */
+    var decl = (st.solar && typeof st.solar.declination === 'number') ? st.solar.declination : 0;
+    var edgeFrac = Math.abs(Math.sin(decl * Math.PI / 180)) / Math.sin(TWI_DEG * Math.PI / 180);
+    if (edgeFrac > 1) edgeFrac = 1;
+    var edgeAlpha = NIGHT_ALPHA * edgeFrac;
+
+    var n0 = c0.length;
+    var lonSpan = lonMax - lonMin, latSpan = latMax - latMin;
+    var a0 = TWI_ALPHA0, a1 = NIGHT_ALPHA - TWI_ALPHA0;
+
+    for (var py = 0; py < oh; py++) {
+      var lat = latMax - (py + 0.5) / oh * latSpan;
+      for (var px = 0; px < ow; px++) {
+        var lon = lonMin + (px + 0.5) / ow * lonSpan;
+        /* 列插值（相邻曲线点间线性，保证横向也平滑） */
+        var t = (lon + 180) / step;
+        var i0 = Math.floor(t);
+        if (i0 < 0) i0 = 0;
+        if (i0 > n0 - 2) i0 = n0 - 2;
+        var f = t - i0;
+        var p0a = c0[i0], p0b = c0[i0 + 1];
+        var lat0 = p0a[1] + (p0b[1] - p0a[1]) * f;
+        var lat6 = null;
+        var p6a = c6[i0], p6b = c6[i0 + 1];
+        if (p6a && p6b && typeof p6a[1] === 'number' && typeof p6b[1] === 'number') {
+          lat6 = p6a[1] + (p6b[1] - p6a[1]) * f;
+        }
+        /* 向夜侧深入的深度（>0 才是夜/蒙影侧） */
+        var depth = nightUp ? (lat - lat0) : (lat0 - lat);
+        var alpha = 0;
+        if (depth > 0) {
+          var span = lat6 !== null
+              ? Math.abs(lat6 - lat0)
+              : Math.abs(endLat - lat0);
+          if (span < 1e-9) {
+            alpha = lat6 !== null ? NIGHT_ALPHA : edgeAlpha;
+          } else {
+            var fr = depth / span;
+            if (fr >= 1) {
+              alpha = lat6 !== null ? NIGHT_ALPHA : edgeAlpha;
+            } else {
+              var top = lat6 !== null ? NIGHT_ALPHA : edgeAlpha;
+              alpha = TWI_ALPHA0 + (top - TWI_ALPHA0) * fr;
+            }
+          }
+        }
+        var idx = (py * ow + px) * 4;
+        data[idx] = 0;
+        data[idx + 1] = 0;
+        data[idx + 2] = 0;
+        data[idx + 3] = alpha > 1 ? 255 : (alpha < 0 ? 0 : Math.round(alpha * 255));
       }
     }
-
-    for (var l = 0; l < 3; l++) {
-      var rects = bands[l];
-      if (!rects.length) continue;
-      g.fillStyle = NIGHT_LEVELS[l];
-      g.beginPath();
-      for (var j = 0; j < rects.length; j++) {
-        g.rect(rects[j][0], rects[j][1], rects[j][2], rects[j][3]);
-      }
-      g.fill();
-    }
+    octx.putImageData(img, 0, 0);
+    g.drawImage(overlay, 0, 0, W, H);
   }
 
   /* ---------- 晨昏线白折线（连接全部 curve0） ---------- */
