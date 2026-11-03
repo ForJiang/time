@@ -1,3 +1,4 @@
+/* ForJiang */
 /* static-backend.js — 静态部署版"服务端"（window.StaticBackend）
  *
  * GitHub Pages 纯静态部署（无 Python 服务端）下的 /api/state 等价物：

@@ -1,3 +1,4 @@
+/* ForJiang */
 /* map.js — 全屏等距圆柱世界地图 + 晨昏线渲染（window.MapView，契约 §6.2/§6.3）
  *
  * init(canvas)     绑定画布、按 DPR 适配、构建离屏底图、注册 resize、启动定位标记脉冲

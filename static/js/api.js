@@ -1,3 +1,4 @@
+/* ForJiang */
 /* static-api.js — 静态部署版 window.TimeAPI（契约 §6.2 同接口）
  *
  * 与 Flask 版 api.js 的差异只有取数来源：getState 不再 fetch /api/state，

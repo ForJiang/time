@@ -1,3 +1,4 @@
+/* ForJiang */
 /* app.js — 启动编排 + 秒边界时钟 + 1Hz 轮询 + 定位升级（契约 §6.2/§6.3）
  *
  * 启动：MapView.init → fetch /data/world_land.json → setLand →
