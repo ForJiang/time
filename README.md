@@ -1,8 +1,8 @@
 # time · 无世界时钟
 
-> 无世界时钟 — 全屏世界时钟：手绘世界地图按经度画实时晨昏线（Meeus 太阳算法，Python/JS 双实现），居中秒级时钟、四级定位；GitHub Pages 纯静态零服务端
+> 全屏世界时钟：实时晨昏线 + 秒级时钟 + 四级定位
 >
-> A fullscreen world clock: hand-drawn world map with a real-time day/night terminator by longitude (Meeus solar algorithm, Python/JS dual implementation), centered second-level clock, 4-level geolocation; fully static on GitHub Pages
+> Fullscreen world clock with a live day/night terminator, second-level clock and 4-level geolocation
 
 English intro at the bottom: [English](#english)
 
@@ -70,7 +70,7 @@ python3 -m http.server 8000
 
 ## License
 
-MIT © ForJiang — [github.com/ForJiang](https://github.com/ForJiang) · [forjiang.github.io](https://forjiang.github.io)
+GPL-3.0 © 2026 ForJiang — [github.com/ForJiang](https://github.com/ForJiang) · [forjiang.github.io](https://forjiang.github.io)
 
 ---
 
@@ -106,4 +106,4 @@ python3 -m http.server 8000
 
 ### License
 
-MIT © ForJiang — [GitHub](https://github.com/ForJiang) · [Website](https://forjiang.github.io)
+GPL-3.0 © 2026 ForJiang — [GitHub](https://github.com/ForJiang) · [Website](https://forjiang.github.io)
